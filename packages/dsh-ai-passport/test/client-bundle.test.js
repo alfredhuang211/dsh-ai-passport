@@ -17,6 +17,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+// 版本号从 package.json 读：避免发布时"忘了同步测试里的硬编码版本"这种低级漂移。
+const PKG_VERSION = JSON.parse(await readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version
 const CLIENT_BUNDLE = path.join(PACKAGE_ROOT, 'lib', 'client.js')
 const PACKAGE_NAME = 'dsh-ai-passport'
 
@@ -438,7 +440,7 @@ test('设置页组件在完整状态下渲染出全部信息架构（§5.1）', 
   assert.match(text, /整理周报/)
   // 关于
   assert.match(text, /插件版本/)
-  assert.match(text, /1\.2\.0/)
+  assert.match(text, new RegExp(PKG_VERSION.replaceAll('.', '\\.')))
   assert.match(text, /MIT/)
 })
 
@@ -464,7 +466,7 @@ test('设置页开关会发 settings.set，payload 是 {patch:{...}}', async () 
   const body = JSON.parse(fetchStub.calls[0].init.body)
   assert.equal(body.action, 'settings.set')
   assert.deepEqual(body.payload, { patch: { maskTitles: false } }, '完整状态里 maskTitles=true，点一下应写 false')
-  assert.equal(exports.version, '1.2.0')
+  assert.equal(exports.version, PKG_VERSION)
 })
 
 test('设置页试听按钮发 sound.test（kind 与宿主 SOUND_KIND 对齐）', async () => {

@@ -38,13 +38,14 @@ git clone -b feature/dsh-passport \
 
 | 能力 | 说明 |
 | --- | --- |
-| 任务台 | 设备上浏览/新建 DSH 任务，实时 step 与工具名推送 |
-| 完成提醒 | 横幅 + 提示音 + 未读点，成功/失败/中断区分 |
-| 任务审批 | `approval/request` 瀑布拦截，设备端允许/拒绝（高风险工具默认停在拒绝） |
+| 多会话菜单 | 设备显示最多 8 个会话（绿=运行/黄=等待/红=出错或中断/灰=空闲），上下选择、确定进入；会话内看 step/工具/摘要，未读点区分 |
+| 完成提醒 | 非模态横幅 + BP 机提示音（出错加低尾音、中断三连哔）+ 未读点 |
+| 任务审批 | `approval/request` 瀑布拦截，弹窗显示**所属会话名**，设备端允许/拒绝（高风险工具默认停在拒绝），双咳提示音 |
 | 配对 | 6 位配对码（每次上电换），NVS 密钥 + 常量时间比较 + 限流 |
 | DeepSeek 余额 | 大字显示，取不到时明确报错，不显示伪造的 0 |
-| 语音输入 | 设备录音 → BLE 上行 ADPCM → 本地 SenseVoice 离线识别 → 回填输入框。**单次最长 30 秒** |
-| 桌面挂件 | DSH 输入框旁的连接状态挂件 + 180px 浮层（`lib/client.js`） |
+| 语音输入 | 会话内按住确定说话 → BLE 上行 ADPCM → 本地 SenseVoice 离线识别 → **定向发回该会话**。**单次最长 30 秒** |
+| 设置侧栏 | DSH 设置里的独立「AI Passport」页：连接/配对/显示/语音/会话接入/关于（`settings.section`） |
+| 会话旁指示 | 会话标题旁三态 chip：未连接 / 设备已连接 / 本会话已在设备上（`conversation.session.header.utilities`） |
 | Web 面板 | 本地控制面板（回环限定 + SSE 实时推送） |
 
 ### 语音输入的时长限制
@@ -123,17 +124,22 @@ http://127.0.0.1:19387/dsh-passport
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| DSH 桌面版 | `0.2.0-rc.2` | 插件 API 基线，开发时以它为准；macOS 与 Windows 同一份插件代码 |
+| DSH 桌面版 | `0.2.1-rc.3` | 实测基线（`settings.section` / 会话作用域槽位）；macOS 与 Windows 同一份插件代码 |
 | dsh CLI | `0.1.7-rc.2` | `dsh --version` 实测 |
-| 插件（本仓） | `1.2.0` | `packages/dsh-ai-passport/package.json` |
-| 设备固件 | `1.2.1` + git 短哈希 | 固件仓 `version.txt`，构建期自动追加 `git describe` |
-| BLE 协议 | `v1` | 双端常量 `PROTOCOL_VERSION` ↔ `AP_PROTOCOL_VERSION`，取较小值运行 |
+| 插件（本仓） | `2.0.0` | `packages/dsh-ai-passport/package.json` |
+| 设备固件 | `2.0.0` + git 短哈希 | 固件仓 `version.txt`，构建期自动追加 `git describe` |
+| BLE 协议 | `v2` | 双端常量 `PROTOCOL_VERSION` ↔ `AP_PROTOCOL_VERSION`，取较小值运行；旧固件 v1 走兼容路径一个版本周期 |
 | 固件基线 | `main @ 0b9e4c8` | 上游 [FoloToy/ai-passport](https://github.com/FoloToy/ai-passport) |
 | Node | ≥ 20 | 开发机 22.22.2；DSH 桌面版内置 Node 24.21.0 |
 | 操作系统 | macOS（Apple Silicon）/ Windows 10 1703+ | BLE 后端：CoreBluetooth / WinRT（noble）；固件一次烧录两端通用 |
 
 版本记录：
 
+- `2.0.0` —— **多会话 + 设备菜单 + 设置页重构**：协议升级 v2（`session.list/detail/done/select`、`settings.set`、`sound.test`），
+  设备主页改为会话列表（状态色条/未读点/进入会话）、会话内按住说话定向发送、审批弹窗显示所属会话；
+  桌面端删除输入框旁挂件（修复官方语音插件被挤占），改为设置侧栏独立页 + 会话旁三态指示；
+  提示音升级为「QQ 双咳/单咳采样 + BP 机完成音/出错低尾音/中断三连哔」；固件 `2.0.0` 同步。
+  旧固件按 v1 兼容（`task.state`）运行。
 - `1.2.0` —— **修复长录音静默失败**：任何超过 10 秒的录音都会在设备自动停止后
   "什么也不出"且无任何报错（主机侧会话存活期窗口写死 10s，短于录音上限）；
   现改为由录音上限派生。同时让 `voice.maxSeconds` 真正生效（此前是死配置），
@@ -145,7 +151,7 @@ http://127.0.0.1:19387/dsh-passport
 
 > 设备固件见 [ai-passport-dsh releases](https://github.com/slinxiaosun-blip/ai-passport-dsh/releases)：
 > `1.2.1`（录音上限 15s → 30s，取消静音 1.2s 自动结束，说话中途的停顿不再被切断）。
-> 协议 v1 未变，固件与插件可独立升级。
+> 协议 v2 起双端需同一代；旧固件 v1 仍可被新插件兼容一个版本周期，反之不保证。
 
 > 插件依赖 DSH `0.2.0-rc.x` 的 `ctx.webServer` / `speechToText` / `deepseekAccount`
 > 等宿主 API。DSH 升级前先跑 `npm test`（mock 联调）+ [docs/07](docs/07-设备端验收用例.md)
@@ -179,7 +185,7 @@ http://127.0.0.1:19387/dsh-passport
 | [06-设备端问答与语音直发-设计](docs/06-设备端问答与语音直发-设计.md) | 设备端问答与语音直发 |
 | [07-设备端验收用例](docs/07-设备端验收用例.md) | 逐项验收表与真机实测记录 |
 | [08-Windows反馈清单](docs/08-Windows反馈清单.md) | Windows 客户端适配说明、已知边界、用户反馈清单 |
-| [09-多会话与设备菜单-设计](docs/09-多会话与设备菜单-设计.md) | 协议 v2、多会话列表、设备菜单层级、设置侧栏独立页（设计稿） |
+| [09-多会话与设备菜单-设计](docs/09-多会话与设备菜单-设计.md) | 协议 v2、多会话列表、设备菜单层级、设置侧栏独立页（设计稿 + §12 实现与验收记录） |
 
 ## 开发须知
 

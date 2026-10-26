@@ -467,6 +467,22 @@ export function createRuntime({ config, logger, settingsFile = '' }) {
           await link.send('toast', { text: String(payload.text ?? '你好') })
           return { message: '提示已发送到设备', state: snapshot() }
 
+        case 'device.key': {
+          // 调试/验收专用：把一次按键事件注入设备的**真实按键队列**（协议 debug.key）。
+          // 用途：没有机械手时也能自动化回归"列表选择→进入会话→返回"这类链路；
+          // 走的是与物理按键相同的 app.c 队列，不是旁路，因此能测到真实分发逻辑。
+          // btn: 0=上 1=下 2=确定；event: 0=按下 1=单击 2=双击 3=长按 4=抬起。
+          const btn = Number(payload?.btn)
+          const event = Number(payload?.event)
+          const validBtn = Number.isInteger(btn) && btn >= 0 && btn <= 2
+          const validEvent = Number.isInteger(event) && event >= 0 && event <= 4
+          if (!validBtn || !validEvent) {
+            throw new Error('device.key 参数非法：btn∈[0,2]，event∈[0,4]')
+          }
+          await link.send(MSG.DEBUG_KEY, { btn, event })
+          return { message: `按键已注入（btn=${btn} event=${event}）`, state: snapshot() }
+        }
+
         case 'settings.get':
           return { settings: settings.get(), state: snapshot() }
 

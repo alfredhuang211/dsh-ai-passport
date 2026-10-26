@@ -419,6 +419,22 @@ test('面板动作分发：全部动作都能被识别，未知动作明确报�
   await teardown({ runtime })
 })
 
+test('调试按键：device.key 注入真实按键队列，非法参数明确报错', async () => {
+  const { runtime } = await setupRuntime()
+
+  // 模拟"短按确定"（btn=2 event=1）：走的是设备端与物理按键完全相同的 debug.key 队列。
+  const result = await runtime.dispatch('device.key', { btn: 2, event: 1 })
+  assert.match(result.message, /按键已注入/)
+  const key = sentByHost(runtime).find((message) => message.type === MSG.DEBUG_KEY)
+  assert.ok(key, '设备应收到 debug.key')
+  assert.equal(key.btn, 2)
+  assert.equal(key.event, 1)
+
+  await assert.rejects(() => runtime.dispatch('device.key', { btn: 9, event: 1 }), /参数非法/)
+  await assert.rejects(() => runtime.dispatch('device.key', { btn: 2, event: 9 }), /参数非法/)
+  await teardown({ runtime })
+})
+
 test('配置归一化：越界与非法值被钳制，不抛错', () => {
   const config = normalizeConfig({
     transport: 'not-a-transport',

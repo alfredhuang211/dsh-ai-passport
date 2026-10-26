@@ -36,7 +36,7 @@ window.__ModuleLoader__.load({
     /** Web 控制面板入口（设置页缺失时的替代入口，也是排障用的独立页面）。 */
     const PANEL_PATH = '/dsh-passport'
     /** 插件版本。与 package.json 的 version 对齐（单测会钉住，避免两处漂移）。 */
-    const VERSION = '1.2.0'
+    const VERSION = '2.0.0'
     /** 轮询间隔：可见 2s；标签页隐藏时降频到 10s（指示器/设置页都不该在后台空转）。 */
     const POLL_INTERVAL_MS = 2000
     const POLL_HIDDEN_MS = 10000
