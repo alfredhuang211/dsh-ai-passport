@@ -197,12 +197,25 @@ test('未知 resultId：明确报过期，不静默失败', () => {
   assert.ok(toastTexts(sent).some((t) => t.includes('过期')), '设备应被告知结果已过期')
 })
 
-test('directSend 关闭时 send 被拒绝并说明原因', () => {
-  const { domain, handlers, sent, domainState } = makeDomain({ voice: { directSend: false } })
-  seed(domain, 'v4', '文本')
-  handlers.get('voice.action')({ resultId: 'v4', mode: 'send' })
-  assert.equal(domainState.voice.pending, null)
-  assert.ok(toastTexts(sent).some((t) => t.includes('关闭')), '设备应被告知直发已关闭')
+test('挂件已移除：fill/send 无人认领时由 2.5s 兜底直发（不会再永远挂起）', async () => {
+  // S4 删除了输入框旁挂件（修官方麦克风插件），因此不再存在 voice.take 消费者。
+  // 旧逻辑只给 send 挂兜底、fill 永远等挂件 → 设备「填入」会挂死。这里锁死两种模式都能落地。
+  const { domain, handlers, sent } = makeDomain()
+  const prompts = []
+  domain.attach({}, {
+    get: (name) => (name === 'sessionController'
+      ? { list: async () => ({ items: [{ sessionId: 's1', running: true, updatedAt: 1 }] }), prompt: async (args) => { prompts.push(args) } }
+      : null),
+  })
+  seed(domain, 'v4', '兜底文本')
+  handlers.get('voice.action')({ resultId: 'v4', mode: 'fill' })
+
+  await wait(2700)
+  assert.equal(prompts.length, 1, 'fill 无人认领也必须兜底直发')
+  assert.equal(prompts[0].sessionId, 's1')
+  assert.ok(toastTexts(sent).includes('已直接发送到任务'))
+  assert.equal(domain.domainState.voice.pending, null)
+  await domain.dispose()
 })
 
 test('discard：设备端「清除」把结果真作废（文本也删），之后误触填入只会提示过期', async () => {

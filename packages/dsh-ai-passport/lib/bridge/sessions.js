@@ -66,6 +66,8 @@ export class SessionDomain {
     this.logger = shared.logger ?? (() => {})
     this.domainState = shared.domainState ?? null
     this.config = shared.config ?? {}
+    /** 运行时设置（标题打码/上限/详情次要信息）。 */
+    this.settings = shared.settings ?? null
     this.ctx = null
     this.runtime = null
 
@@ -448,6 +450,23 @@ export class SessionDomain {
     return { state: TASK_STATE.IDLE, title: '' }
   }
 
+  /** 当前生效的显示设置（没有 store 时用安全默认值）。 */
+  #displayConfig() {
+    const values = this.settings?.get?.() ?? {}
+    return {
+      maskTitles: values.maskTitles === true,
+      detailSummary: values.detailSummary !== false,
+      detailElapsed: values.detailElapsed !== false,
+      maxSessions: Math.max(1, Math.min(SESSION.MAX, Number(values.maxSessions) || SESSION.MAX)),
+    }
+  }
+
+  /** 打码后的显示标题：序号按列表顺序（会话 1/2/3）。 */
+  #displayTitle(record, index = -1) {
+    if (!this.#displayConfig().maskTitles) return record.title
+    return index >= 0 ? `会话 ${index + 1}` : '会话'
+  }
+
   /** 上设备的会话：排除子代理与空白（运行中的空白保留），按 updatedAt 倒序。 */
   visibleSessions() {
     const list = []
@@ -461,7 +480,7 @@ export class SessionDomain {
       if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
       return String(a.handle).localeCompare(String(b.handle))
     })
-    const visible = list.slice(0, SESSION.MAX)
+    const visible = list.slice(0, this.#displayConfig().maxSessions)
     const visibleHandles = new Set(visible.map((record) => record.handle))
     if (this.selectedHandle && !visibleHandles.has(this.selectedHandle)) {
       this.selectedHandle = ''
@@ -519,12 +538,13 @@ export class SessionDomain {
 
   #flushSessions(options) {
     const visible = this.visibleSessions()
+    const display = this.#displayConfig()
     let payload
     try {
       payload = encodeSessionList(
-        visible.map((record) => ({
+        visible.map((record, index) => ({
           handle: record.handle,
-          title: record.title,
+          title: this.#displayTitle(record, index),
           state: this.#stateOf(record),
           unread: Boolean(record.unread),
         })),
@@ -606,17 +626,19 @@ export class SessionDomain {
     if (snapshot.state !== 'connected' || !snapshot.handshakeComplete) return
     if ((Number(snapshot.deviceInfo?.protocolVersion) || 0) < 2) return
     const handle = this.#ensureHandle(record)
+    const display = this.#displayConfig()
+    const index = this.visibleSessions().findIndex((item) => item.sessionId === record.sessionId)
     const payload = {
       h: handle,
-      title: encodeTitle(record.title),
+      title: encodeTitle(this.#displayTitle(record, index)),
       state: this.#stateOf(record),
     }
     if (record.step != null) payload.step = Number(record.step)
     if (record.stepTotal != null) payload.stepTotal = Number(record.stepTotal)
     if (record.tool) payload.tool = String(record.tool)
-    if (record.startedAt && record.running) payload.elapsedMs = Math.max(0, now() - record.startedAt)
-    else if (record.startedAt && record.endedAt) payload.elapsedMs = Math.max(0, record.endedAt - record.startedAt)
-    if (record.summary) payload.summary = encodeTitle(record.summary)
+    if (display.detailElapsed && record.startedAt && record.running) payload.elapsedMs = Math.max(0, now() - record.startedAt)
+    else if (display.detailElapsed && record.startedAt && record.endedAt) payload.elapsedMs = Math.max(0, record.endedAt - record.startedAt)
+    if (display.detailSummary && record.summary) payload.summary = encodeTitle(record.summary)
     Promise.resolve(this.link.send(MSG.SESSION_DETAIL, payload)).catch((error) =>
       this.logger('debug', `[sessions] session.detail 下发失败：${error?.message ?? error}`),
     )
@@ -627,9 +649,10 @@ export class SessionDomain {
     if (snapshot.state !== 'connected' || !snapshot.handshakeComplete) return
     if ((Number(snapshot.deviceInfo?.protocolVersion) || 0) < 2) return
     const handle = this.#ensureHandle(record)
+    const index = this.visibleSessions().findIndex((item) => item.sessionId === record.sessionId)
     const payload = {
       h: handle,
-      title: encodeTitle(record.title),
+      title: encodeTitle(this.#displayTitle(record, index)),
       result: this.#doneResult(record),
       durationMs: record.startedAt ? Math.max(0, (record.endedAt || now()) - record.startedAt) : 0,
     }

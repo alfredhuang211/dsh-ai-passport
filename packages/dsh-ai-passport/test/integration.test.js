@@ -8,6 +8,9 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import { createRuntime } from '../lib/index.js'
 import { normalizeConfig } from '../lib/config.js'
@@ -18,7 +21,8 @@ import { MSG, TASK_STATE } from '../lib/protocol/constants.js'
 async function setupRuntime(hostOptions = {}, configOverrides = {}) {
   const host = new FakeHost(hostOptions)
   const config = normalizeConfig({ transport: 'mock', autoConnect: false, ...configOverrides })
-  const runtime = createRuntime({ config, logger: () => {} })
+  const settingsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ap-integration-')), 'settings.json')
+  const runtime = createRuntime({ config, logger: () => {}, settingsFile })
   await runtime.connect()
   // 等握手落地（mock 传输是异步冒泡的）
   await new Promise((resolve) => setTimeout(resolve, 40))

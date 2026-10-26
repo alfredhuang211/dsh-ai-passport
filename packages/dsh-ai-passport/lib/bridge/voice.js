@@ -418,11 +418,6 @@ export class VoiceDomain {
           void this.#directSend(targetSessionId, entry.text, resultId)
           return
         }
-        if (mode === 'send' && !this.config.voice.directSend) {
-          void this.link.send(MSG.TOAST, { text: '双击直发已关闭，文本在语音列表里可手动填入' }).catch(() => {})
-          return
-        }
-
         this.domainState.voice = {
           ...(this.domainState.voice ?? {}),
           pending: {
@@ -435,7 +430,8 @@ export class VoiceDomain {
           },
         }
         this.broadcast({ type: 'voice.pending', pending: this.domainState.voice.pending })
-        if (mode === 'send') this.#armFallback(resultId)
+        // 挂件已移除（S4）：send/fill 都必须有兜底直发，否则 pending 永远没人认领。
+        this.#armFallback(resultId)
         this.logger('info', `[voice] 设备请求 ${mode}：${resultId}（${entry.text.length} 字）`)
       }),
     )

@@ -26,6 +26,8 @@ import { PairingDomain } from './bridge/pairing.js'
 import { VoiceDomain } from './bridge/voice.js'
 import { QuestionsDomain } from './bridge/questions.js'
 import { registerTools } from './tools/index.js'
+import { SettingsStore } from './settings-store.js'
+import { MSG } from './protocol/constants.js'
 
 export const name = 'dsh-ai-passport'
 
@@ -186,7 +188,7 @@ function applyUnsafe(root, rawConfig) {
  *
  * 抽成独立函数是为了让单测能直接构造它，不必经过插件加载器。
  */
-export function createRuntime({ config, logger }) {
+export function createRuntime({ config, logger, settingsFile = '' }) {
   const transport = createTransport(config, logger)
   const link = new HostLink({
     // eslint-disable-next-line no-undef
@@ -203,7 +205,8 @@ export function createRuntime({ config, logger }) {
     /** 多会话快照（协议 v2）：[{sessionId, handle, title, state, unread, updatedAt}] */
     sessions: [],
     selectedHandle: '',
-    deviceSelectedSessionId: '', 
+    deviceSelectedSessionId: '',
+    desktopFocusedSessionId: '', 
     approvals: [],
     balance: null,
     balanceError: null,
@@ -230,8 +233,28 @@ export function createRuntime({ config, logger }) {
     }
   }
 
+  // 运行时设置：插件自有 JSON（见 settings-store.js 的取舍说明）。
+  const settingsPath = (() => {
+    try {
+      const nodeOs = globalThis.process?.getBuiltinModule?.('node:os')
+      return nodeOs ? `${nodeOs.homedir()}/.dsh/dsh-ai-passport.settings.json` : ''
+    } catch {
+      return ''
+    }
+  })()
+  const settings = new SettingsStore({
+    filePath: settingsFile || settingsPath,
+    logger: (level, message) => logger(level, message),
+    defaults: {
+      maskTitles: Boolean(config.tasks?.maskTitles),
+      soundEnabled: Boolean(config.notify?.sound),
+      backlightPulse: Boolean(config.notify?.backlightPulse),
+    },
+  })
+  settings.load()
+
   const domains = []
-  const shared = { link, config, logger, broadcast, domainState, domains }
+  const shared = { link, config, logger, broadcast, domainState, domains, settings }
 
   const state = new SessionDomain(shared)
   // 审批/追问/语音域通过 shared.sessions 定向到具体会话（协议 v2）。
@@ -282,6 +305,18 @@ export function createRuntime({ config, logger }) {
     broadcast({ type: 'link.error', code: error.code, message: error.message, hint: error.hint }),
   )
 
+  /** 把当前设置下发给设备（唯一事实源仍在主机侧）。 */
+  function sendDeviceConfig() {
+    const values = settings.get()
+    void Promise.resolve(link.send(MSG.CONFIG, {
+      soundEnabled: values.soundEnabled,
+      backlightPulse: values.backlightPulse,
+      maskTitles: values.maskTitles,
+      detailSummary: values.detailSummary,
+      detailElapsed: values.detailElapsed,
+    })).catch((error) => logger('debug', `[settings] config 下发失败：${error?.message ?? error}`))
+  }
+
   function snapshot() {
     return {
       link: link.snapshot(),
@@ -293,7 +328,8 @@ export function createRuntime({ config, logger }) {
       sessions: domainState.sessions ?? [],
       selectedHandle: domainState.selectedHandle ?? '',
       deviceSelectedSessionId: domainState.deviceSelectedSessionId ?? '',
-      desktopFocusedSessionId: '',
+      desktopFocusedSessionId: domainState.desktopFocusedSessionId ?? '',
+      settings: settings.get(),
       approvals: domainState.approvals,
       balance: domainState.balance,
       balanceError: domainState.balanceError,
@@ -310,6 +346,7 @@ export function createRuntime({ config, logger }) {
         transport: config.transport,
         targetDeviceId: config.targetDeviceId,
         autoReconnect: config.autoReconnect,
+        autoConnect: config.autoConnect,
         voice: config.voice,
         approval: config.approval,
         questions: config.questions,
@@ -430,6 +467,34 @@ export function createRuntime({ config, logger }) {
           await link.send('toast', { text: String(payload.text ?? '你好') })
           return { message: '提示已发送到设备', state: snapshot() }
 
+        case 'settings.get':
+          return { settings: settings.get(), state: snapshot() }
+
+        case 'settings.set': {
+          const patch = payload?.patch ?? payload ?? {}
+          const result = settings.set(patch)
+          // 立即生效：会话列表（打码/上限）、设备配置。
+          state.push({ force: true, immediate: true })
+          sendDeviceConfig()
+          broadcast({ type: 'settings.updated', settings: settings.get() })
+          return {
+            settings: settings.get(),
+            state: snapshot(),
+            message: result.changed ? '已保存并生效' : '设置未变化',
+          }
+        }
+
+        case 'session.focus': {
+          domainState.desktopFocusedSessionId = String(payload?.sessionId ?? '')
+          return { state: snapshot() }
+        }
+
+        case 'sound.test': {
+          const kind = String(payload?.kind ?? 'approve')
+          await link.send(MSG.SOUND_TEST, { kind })
+          return { message: '已发送试听', state: snapshot() }
+        }
+
         case 'device.refresh':
           // 精简版没有任务列表可刷；改为强制重推一次状态。
           state.onLinkReady()
@@ -498,6 +563,7 @@ export function createRuntime({ config, logger }) {
   // 并顺手刷一次余额，让面板与设备都有数据。
   link.on('ready', () => {
     state.onLinkReady()
+    sendDeviceConfig()
     void balance.refresh().catch(() => {})
   })
 
