@@ -78,7 +78,7 @@ export class ApprovalDomain {
     this.domainState.approvalTrace = this.trace
     this.unsubscribes = []
     /**
-     * 审批状态变化回调，由 index.js 注入（指向 StateDomain.setApproval）。
+     * 审批状态变化回调，由 index.js 注入（指向 SessionDomain.setApproval）。
      *
      * 为什么用回调而不是让审批域直接依赖状态域：两者是**平级**的业务域，
      * 直接互相引用会形成环（状态域要读审批状态，审批域又要推状态）。

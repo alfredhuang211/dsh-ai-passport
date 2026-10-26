@@ -557,7 +557,7 @@ export class HostLink extends EventEmitter {
 
     // ★ 硬约束：设备侧的接收缓冲只有 MAX_PAYLOAD_BYTES。超限发出去**不会报错**，
     //   只会让设备那边的消息永远拼不完整（表现为"任务列表显示不全"这类静默故障）。
-    //   因此宁可在这里明确失败，逼调用方自己裁剪（见 bridge/state.js）。
+    //   因此宁可在这里明确失败，逼调用方自己裁剪（见 bridge/sessions.js）。
     if (bytes.length > MAX_PAYLOAD_BYTES) {
       // 这里还没有分配 msgId，直接抛即可（别去 allocate 再 release：那会白白消耗号段）
       throw new Error(

@@ -189,7 +189,7 @@ export class MockTransport extends Transport {
         this.#sendToHost(CHANNEL.HEARTBEAT, { type: MSG.PONG, t: message.t })
         break
       // task.list.req 已随精简版移除：设备不再请求任务列表，
-      // 状态改由主机主动推送（见 bridge/state.js）。
+      // 状态改由主机主动推送（见 bridge/sessions.js）。
       case MSG.BALANCE_REQ:
         this.#sendToHost(CHANNEL.CONTROL, {
           type: MSG.BALANCE,

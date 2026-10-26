@@ -110,7 +110,7 @@ export const MAX_CHUNKS = 16
  * 一条消息留 8KB 缓冲。主机按 8192 发、设备只收 2048 的后果是**静默截断**——
  * 表现为"任务列表永远显示不全"，不报错、极难查。
  *
- * 发送方在编码前必须校验：超过此值就要自己裁剪（见 bridge/state.js 的标题长度限制）。
+ * 发送方在编码前必须校验：超过此值就要自己裁剪（见 protocol/flat.js 的标题截断与 sessions.js 的列表裁剪）。
  */
 export const MAX_PAYLOAD_BYTES = 2048
 

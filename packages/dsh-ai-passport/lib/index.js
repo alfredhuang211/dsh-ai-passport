@@ -19,7 +19,7 @@ import { HostLink } from './ble/host-link.js'
 import { MockTransport } from './ble/mock.js'
 import { BridgeProcessTransport } from './ble/bridge-process.js'
 import { Panel } from './panel/index.js'
-import { StateDomain } from './bridge/state.js'
+import { SessionDomain } from './bridge/sessions.js'
 import { BalanceDomain } from './bridge/balance.js'
 import { ApprovalDomain } from './bridge/approval.js'
 import { PairingDomain } from './bridge/pairing.js'
@@ -198,8 +198,12 @@ export function createRuntime({ config, logger }) {
   const listeners = new Set()
   /** 业务域的最新快照，由各域自己维护。 */
   const domainState = {
-    /** 聚合后的整体状态（精简版取代了原来的任务列表）。 */
+    /** 聚合后的整体状态（v1 兼容字段；v2 设备只看 sessions）。 */
     taskState: null,
+    /** 多会话快照（协议 v2）：[{sessionId, handle, title, state, unread, updatedAt}] */
+    sessions: [],
+    selectedHandle: '',
+    deviceSelectedSessionId: '', 
     approvals: [],
     balance: null,
     balanceError: null,
@@ -229,7 +233,7 @@ export function createRuntime({ config, logger }) {
   const domains = []
   const shared = { link, config, logger, broadcast, domainState, domains }
 
-  const state = new StateDomain(shared)
+  const state = new SessionDomain(shared)
   const balance = new BalanceDomain(shared)
   const approval = new ApprovalDomain(shared)
   const voice = new VoiceDomain(shared)
@@ -281,6 +285,10 @@ export function createRuntime({ config, logger }) {
       // 没有它就只能猜是权限、模块、还是设备不在广播。
       diagnose: typeof transport.diagnose === 'function' ? transport.diagnose() : null,
       taskState: domainState.taskState,
+      sessions: domainState.sessions ?? [],
+      selectedHandle: domainState.selectedHandle ?? '',
+      deviceSelectedSessionId: domainState.deviceSelectedSessionId ?? '',
+      desktopFocusedSessionId: '',
       approvals: domainState.approvals,
       balance: domainState.balance,
       balanceError: domainState.balanceError,
