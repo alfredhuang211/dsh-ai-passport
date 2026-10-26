@@ -14,6 +14,12 @@ packages/*/node_modules/
 # 插件运行时产物（录音临时文件）
 packages/dsh-ai-passport/audio/
 
+# 提示音离线试听产物（tools/sound-preview.mjs 生成，不入库）
+sound-preview/
+
+# 本地音效采样与生成物（含第三方版权音频，绝不入库）
+sound-assets/
+
 # Python
 __pycache__/
 *.pyc

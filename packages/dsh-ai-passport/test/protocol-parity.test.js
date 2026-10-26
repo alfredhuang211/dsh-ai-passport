@@ -119,6 +119,14 @@ test('消息类型字符串逐条一致（错一个字符就静默不通）', as
     ACK: 'AP_MSG_ACK',
     NACK: 'AP_MSG_NACK',
     TASK_STATE: 'AP_MSG_TASK_STATE',
+    // 协议 v2：多会话与试听
+    SESSION_LIST: 'AP_MSG_SESSION_LIST',
+    SESSION_LIST_REQ: 'AP_MSG_SESSION_LIST_REQ',
+    SESSION_DETAIL: 'AP_MSG_SESSION_DETAIL',
+    SESSION_DETAIL_REQ: 'AP_MSG_SESSION_DETAIL_REQ',
+    SESSION_DONE: 'AP_MSG_SESSION_DONE',
+    SESSION_SELECT: 'AP_MSG_SESSION_SELECT',
+    SOUND_TEST: 'AP_MSG_SOUND_TEST',
     DEBUG_KEY: 'AP_MSG_DEBUG_KEY',
     APPROVE_REQ: 'AP_MSG_APPROVE_REQ',
     APPROVE: 'AP_MSG_APPROVE',
@@ -163,6 +171,61 @@ test('消息类型字符串逐条一致（错一个字符就静默不通）', as
   const jsKeys = Object.keys(constants.MSG)
   const unmapped = jsKeys.filter((key) => !(key in mapping))
   assert.deepEqual(unmapped, [], `JS 侧 MSG 有未纳入比对的键：${unmapped.join(', ')}`)
+})
+
+/** 解析 C 能力位写法 `(1 << N)`。 */
+function toCapBit(value) {
+  const match = /^\(\s*1\s*<<\s*(\d+)\s*\)$/.exec(value.trim())
+  if (!match) return Number.NaN
+  return 1 << Number(match[1])
+}
+
+test('设备能力位一致（主机据此选择 v2/兼容路径）', async () => {
+  const mapping = {
+    DISPLAY: 'AP_CAP_DISPLAY',
+    BUTTONS: 'AP_CAP_BUTTONS',
+    MIC: 'AP_CAP_MIC',
+    SPEAKER: 'AP_CAP_SPEAKER',
+    BATTERY: 'AP_CAP_BATTERY',
+    NOTIFY_LED: 'AP_CAP_NOTIFY_LED',
+    SESSION_LIST: 'AP_CAP_SESSION_LIST',
+  }
+  for (const [jsKey, macro] of Object.entries(mapping)) {
+    assert.ok(constants.CAPABILITY[jsKey] !== undefined, `JS CAPABILITY 缺少 ${jsKey}`)
+    await expectMatch(macro, constants.CAPABILITY[jsKey], toCapBit)
+  }
+})
+
+test('多会话常量与单会话状态一致', async () => {
+  await expectMatch('AP_SESSION_MAX', constants.SESSION.MAX, toInt)
+  await expectMatch('AP_SESSION_TITLE_BYTES', constants.SESSION.TITLE_BYTES, toInt)
+  await expectMatch('AP_SESSION_HANDLE_LEN', constants.SESSION.HANDLE_LEN, toInt)
+
+  const states = {
+    RUNNING: 'AP_SSTATE_RUNNING',
+    WAITING: 'AP_SSTATE_WAITING',
+    ERROR: 'AP_SSTATE_ERROR',
+    ABORTED: 'AP_SSTATE_ABORTED',
+    IDLE: 'AP_SSTATE_IDLE',
+  }
+  for (const [jsKey, macro] of Object.entries(states)) {
+    await expectMatch(macro, constants.SESSION_STATE[jsKey])
+  }
+})
+
+test('试听音型一致（sound.test 的 kind 取值）', async () => {
+  const kinds = {
+    APPROVE: 'AP_SOUND_APPROVE',
+    COMPLETED: 'AP_SOUND_COMPLETED',
+    ERROR: 'AP_SOUND_ERROR',
+    DECIDED: 'AP_SOUND_DECIDED',
+    PAIR_OK: 'AP_SOUND_PAIR_OK',
+    PAIR_FAIL: 'AP_SOUND_PAIR_FAIL',
+    LOW_BATTERY: 'AP_SOUND_LOW_BATTERY',
+  }
+  for (const [jsKey, macro] of Object.entries(kinds)) {
+    await expectMatch(macro, constants.SOUND_KIND[jsKey])
+  }
 })
 
 test('广播厂商标签一致（识别设备的兜底条件）', async () => {

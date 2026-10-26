@@ -7,7 +7,7 @@
  */
 
 /** 协议版本。两端取较小值运行；设备屏幕在版本不匹配时必须显式提示而不是静默失败。 */
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 /** 广播名。主机侧按名字 + Manufacturer Data 双重过滤，避免连到同名设备。 */
 export const DEVICE_NAME = 'FoloPassport-DSH'
@@ -140,6 +140,8 @@ export const CAPABILITY = Object.freeze({
   SPEAKER: 1 << 3,
   BATTERY: 1 << 4,
   NOTIFY_LED: 1 << 5,
+  /** v2：设备理解 session.list / session.detail / session.done（主机据此选择新/旧协议路径）。 */
+  SESSION_LIST: 1 << 6,
 })
 
 /** 音频参数。两端必须一致；采样率降级时以 hello 协商结果为准。 */
@@ -181,7 +183,16 @@ export const MSG = Object.freeze({
   NACK: 'nack', // {msgId, reason}
 
   // —— 任务域 ——
-  TASK_STATE: 'task.state',      // 主机聚合后的整体状态（精简版核心消息）
+  TASK_STATE: 'task.state',      // v1 兼容：主机聚合后的整体状态（v2 设备不再使用）
+
+  // —— 多会话（协议 v2 核心）——
+  SESSION_LIST: 'session.list',          // Mac → 设备：多会话快照（全量替换）
+  SESSION_LIST_REQ: 'session.list.req',  // 设备 → Mac：列表为空时重拉
+  SESSION_DETAIL: 'session.detail',      // Mac → 设备：进入/刷新某会话
+  SESSION_DETAIL_REQ: 'session.detail.req', // 设备 → Mac：刷新详情
+  SESSION_DONE: 'session.done',          // Mac → 设备：turn 结束提醒
+  SESSION_SELECT: 'session.select',      // 设备 → Mac：选中/进入某会话
+  SOUND_TEST: 'sound.test',              // Mac → 设备：桌面设置页试听
 
   // —— 审批域 ——
   APPROVE_REQ: 'approve.req', // Mac → 设备
@@ -255,11 +266,45 @@ export const APPROVE_SCOPE = Object.freeze({
   ALWAYS: 'always',
 })
 
+/**
+ * 单个会话在设备上的状态（协议 v2）。
+ *
+ * ★ 与 TASK_STATE 的区别：TASK_STATE 是 v1 的**全局四态**（设备不持有会话）；
+ *   这里是**每会话**状态，设备按行显示图标/颜色。两者不可混用。
+ */
+export const SESSION_STATE = Object.freeze({
+  RUNNING: 'running',
+  WAITING: 'waiting', // 该会话有审批/追问挂起
+  ERROR: 'error',
+  ABORTED: 'aborted',
+  IDLE: 'idle',
+})
+
+/** 会话列表约束。设备端 app_proto.h 的 AP_SESSION_* 必须逐字节一致（parity 测试卡住）。 */
+export const SESSION = Object.freeze({
+  MAX: 8,             // 单次快照最多条数
+  TITLE_BYTES: 40,    // 标题 UTF-8 字节上限（超长在主机侧按字符边界截断）
+  HANDLE_LEN: 2,      // handle 固定 2 位十六进制（"01".."08"）
+})
+
+/** sound.test 可试听的音型（设备端 app_proto.h 的 AP_SOUND_* 对应）。 */
+export const SOUND_KIND = Object.freeze({
+  APPROVE: 'approve',
+  COMPLETED: 'completed',
+  ERROR: 'error',
+  DECIDED: 'decided',
+  PAIR_OK: 'pair_ok',
+  PAIR_FAIL: 'pair_fail',
+  LOW_BATTERY: 'low_battery',
+})
+
 /** 设备侧默认配置。Mac 可通过 CONFIG 消息覆盖（不持久化在设备上，避免 NVS 磨损与状态分叉）。 */
 export const DEVICE_DEFAULT_CONFIG = Object.freeze({
   soundEnabled: true,
   backlightPulse: true,
   maskTitles: false,
+  detailSummary: true,
+  detailElapsed: true,
   voiceAutoSend: false,
   maxTasks: 20,
 })
