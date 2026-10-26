@@ -61,6 +61,8 @@ export class ApprovalDomain {
     this.logger = shared.logger
     this.broadcast = shared.broadcast
     this.domainState = shared.domainState
+    /** 会话域：用于把「等待审批」映射到具体会话（协议 v2）。 */
+    this.sessions = shared.sessions ?? null
 
     /**
      * 等待设备决定的请求。
@@ -85,6 +87,8 @@ export class ApprovalDomain {
      * 由组合根注入单向回调，依赖方向始终是"审批 → 状态"。
      */
     this.onApprovalChange = null
+    /** 某会话进入/离开「等待人工」：由组合根注入（指向 SessionDomain.setSessionWaiting）。 */
+    this.onWaitingChange = null
     this.disposers = []
 
     this.registerProtocolHandlers()
@@ -271,6 +275,43 @@ export class ApprovalDomain {
   }
 
   /**
+   * 推导审批请求所属的会话与标题（协议 v2）。
+   *
+   * DSH 的 `approval/request` 只带 `agent`（wire-safe 版本只有 id）；
+   * 宿主内实际对象还有 `agent.session`，可交给 sessionTitle 服务取标题。
+   * 服务不可用时回退 sessionController.list() 的 projections.values.title。
+   */
+  async #resolveSessionContext(req) {
+    const sessionId = String(req?.agent?.id ?? req?.agent?.session?.id ?? '')
+    let title = ''
+    if (sessionId) {
+      // 会话域里已有标题时直接用（比回查 list() 更快、也更可靠）。
+      title = String(this.sessions?.titleOfSession?.(sessionId) ?? '').trim()
+    }
+    if (sessionId && !title) {
+      try {
+        const service = typeof this.ctx?.get === 'function' ? this.ctx.get('sessionTitle') : null
+        title = String(service?.get?.(req?.agent?.session)?.title ?? '').trim()
+      } catch {
+        // 服务不可用/签名不同：走下面的兜底
+      }
+      if (!title) {
+        try {
+          const controller = typeof this.ctx?.get === 'function' ? this.ctx.get('sessionController') : null
+          const result = await controller?.list?.({})
+          const items = Array.isArray(result) ? result : (result?.items ?? [])
+          const item = items.find((entry) => (entry?.sessionId ?? entry?.id) === sessionId)
+          title = String(item?.projections?.values?.title ?? item?.title ?? '').trim()
+        } catch {
+          // 列表不可用就只显示"另一个会话"（设备侧兜底）
+        }
+      }
+    }
+    const handle = this.sessions?.handleOfSession?.(sessionId) ?? ''
+    return { sessionId, title, handle }
+  }
+
+  /**
    * 把请求送到设备并等一个结果（竞速模型：电脑卡片同时在等）。
    *
    * @returns {{id: string, answer: Promise<'allowed-once'|'rejected'|'cancelled'|null>}}
@@ -280,6 +321,9 @@ export class ApprovalDomain {
     const id = `ap-${Date.now().toString(36)}-${(nextRequestSeq += 1).toString(36)}`
     const timeoutMs = this.config.approval.timeoutMs
     const risk = READ_ONLY_TOOLS.has(toolName) ? 'low' : 'high'
+    // 协议 v2：审批弹窗要显示「是哪个会话在等」。
+    // DSH 的 approval/request 没有 sessionId 字段，只能从 agent 推导（docs/09 §4.2）。
+    const context = await this.#resolveSessionContext(req)
 
     // 面板快照保留完整信息；**下发设备的载荷只带一行极短摘要** ——
     // 设备屏幕不再显示 toolName/reason 正文（用户决策：内容在电脑卡片上看）。
@@ -293,8 +337,12 @@ export class ApprovalDomain {
       callId: req?.callId ?? null,
       timeoutMs,
       risk,
+      sessionId: context.sessionId,
+      sessionTitle: context.title,
     }
     const payload = { id, summary, risk, timeoutMs }
+    if (context.handle) payload.h = context.handle
+    if (context.title) payload.title = clampSummary(context.title, 16)
 
     const answer = new Promise((resolve) => {
       // timeoutMs = 0 → 不挂定时器：审批页一直等（用户要求）。
@@ -305,7 +353,7 @@ export class ApprovalDomain {
           }, timeoutMs)
         : null
       timer?.unref?.()
-      this.pending.set(id, { resolve, timer, request: payload, settled: false })
+      this.pending.set(id, { resolve, timer, request: payload, settled: false, sessionId: context.sessionId })
     })
 
     // 请求方中断（用户点了停止、或上层超时）→ 我们也要立刻收手
@@ -316,6 +364,7 @@ export class ApprovalDomain {
     this.broadcast({ type: 'approval.asked', ...panelEntry })
     // 通知状态域：设备屏幕上进入「待审批」，并触发提示音
     this.onApprovalChange?.(toolName)
+    this.onWaitingChange?.(context.sessionId, true)
     this.logger('info', `[approval] 请求设备审批：${toolName}（${id}）`)
 
     try {
@@ -326,6 +375,7 @@ export class ApprovalDomain {
       //   否则设备会永远停在「待审批」，而那个界面根本没出现 ——
       //   用户看到的提示与实际能做的事完全不符，且无从恢复。
       this.onApprovalChange?.(null)
+      this.onWaitingChange?.(context.sessionId, false)
       this.#settle(id, 'send-failed', 'send-failed')
     }
 
@@ -366,6 +416,7 @@ export class ApprovalDomain {
     // 审批结束 → 设备屏幕离开「待审批」。
     // 只在没有其它挂起审批时才清空：多请求并发时，最后一个结束才算真的没了。
     if (this.pending.size === 0) this.onApprovalChange?.(null)
+    this.onWaitingChange?.(entry.sessionId, false)
     entry.resolve({ outcome, decidedBy })
     return true
   }

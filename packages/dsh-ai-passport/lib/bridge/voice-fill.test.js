@@ -17,7 +17,7 @@ import { VoiceDomain, DEFAULT_AUDIO_DIR, writeAudioArchive } from './voice.js'
 import { MSG } from '../protocol/constants.js'
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-function makeDomain({ voice = {}, speechToText } = {}) {
+function makeDomain({ voice = {}, speechToText, sessionDomain } = {}) {
   const handlers = new Map()
   const sent = []
   const link = {
@@ -49,6 +49,7 @@ function makeDomain({ voice = {}, speechToText } = {}) {
     logger: () => {},
     broadcast: () => {},
     domainState,
+    ...(sessionDomain ? { sessions: sessionDomain } : {}),
   })
   // 识别目录探测需要宿主 ctx（speechToText 是可选服务，用 get 取）
   const ctx = {
@@ -324,8 +325,8 @@ function voicePacket(sessionId, blocks = 10) {
 }
 
 /** 跑完一次"按下说话"：voice.begin → 音频分片 → voice.end（内部会解码并转写）。 */
-async function driveSession(domain, handlers, sessionId, blocks = 10) {
-  handlers.get(MSG.VOICE_BEGIN)({ sessionId, sampleRate: 16000, bits: 16, channels: 1, codec: 'ima-adpcm' })
+async function driveSession(domain, handlers, sessionId, blocks = 10, begin = {}) {
+  handlers.get(MSG.VOICE_BEGIN)({ sessionId, sampleRate: 16000, bits: 16, channels: 1, codec: 'ima-adpcm', ...begin })
   domain.voiceListener({ channel: 'voice', bytes: voicePacket(sessionId, blocks) })
   await handlers.get(MSG.VOICE_END)({ sessionId, maxRms: 120, seqGaps: 0 }, { msgId: 1, channel: 0, reply: async () => {} })
 }
@@ -468,4 +469,62 @@ test('writeAudioArchive：写入成对文件，并按 keep 清理最旧组', () 
   const left = fs.readdirSync(dir).sort()
   assert.equal(left.length, 4)
   assert.ok(!left.some((f) => f.includes('session1')), '最旧的一组被清掉')
+})
+
+
+// ── 协议 v2：语音定向发送 ───────────────────────────────────────────────────
+
+test('v2：设备在会话内说话并发送 → 直接 prompt 到该会话，不经挂件', async () => {
+  const prompts = []
+  const speech = fakeSpeech({ text: '把登录超时改成 30 秒' })
+  const sessionDomain = {
+    sessionIdOfHandle: (handle) => (handle === '03' ? 'session-3' : ''),
+    titleOfSession: (id) => (id === 'session-3' ? '重构登录' : ''),
+  }
+  const { domain, handlers, sent, domainState } = makeDomain({ speechToText: speech, sessionDomain })
+  domain.attach({}, {
+    get: (name) => {
+      if (name === 'speechToText') return speech
+      if (name === 'sessionController') {
+        return {
+          list: async () => ({ items: [] }),
+          prompt: async (args, signal) => { prompts.push({ args, signal }) },
+        }
+      }
+      return null
+    },
+  })
+
+  // 手动驱动一次录音：voice.result 走 context.reply，不在 link.send 的记录里。
+  const replies = []
+  handlers.get(MSG.VOICE_BEGIN)({ sessionId: 5, sampleRate: 16000, bits: 16, channels: 1, codec: 'ima-adpcm', target: '03' })
+  domain.voiceListener({ channel: 'voice', bytes: voicePacket(5, 10) })
+  await handlers.get(MSG.VOICE_END)(
+    { sessionId: 5, maxRms: 120, seqGaps: 0 },
+    { msgId: 1, channel: 0, reply: async (type, payload) => replies.push({ type, payload }) },
+  )
+  const result = replies.find((entry) => entry.type === MSG.VOICE_RESULT)
+  assert.ok(result, '识别结果应回发设备')
+  assert.equal(result.payload.h, '03', 'voice.result 应带目标会话 handle')
+
+  handlers.get(MSG.VOICE_ACTION)({ resultId: result.payload.resultId, mode: 'send', target: '03' })
+  await wait(20)
+
+  assert.equal(prompts.length, 1, '应直接发送一次')
+  assert.equal(prompts[0].args.sessionId, 'session-3', '必须发到设备选中的会话')
+  assert.equal(prompts[0].args.mode, 'queue')
+  // ★ P0 回归钉子：prompt 的 signal 必传（漏传会 TypeError → 发送 100% 失败）
+  assert.ok(prompts[0].signal && typeof prompts[0].signal.throwIfAborted === 'function', 'prompt 必须带 signal')
+  assert.ok(toastTexts(sent).some((text) => text.includes('已发送')), '应 toast 已发送')
+  assert.equal(domainState.voice.pending, null, '定向发送不应留下挂件 pending')
+  await domain.dispose()
+})
+
+test('v1 兼容：没有 target 时仍走挂件/pending 老路径', async () => {
+  const { domain, handlers, sent } = makeDomain()
+  domain.attach({}, { get: () => null })
+  seed(domain, 'v9', '老路径文本')
+  handlers.get(MSG.VOICE_ACTION)({ resultId: 'v9', mode: 'fill' })
+  assert.ok(domain.domainState.voice.pending, 'v1 fill 仍应登记 pending 给挂件')
+  await domain.dispose()
 })

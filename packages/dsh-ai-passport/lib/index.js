@@ -234,6 +234,8 @@ export function createRuntime({ config, logger }) {
   const shared = { link, config, logger, broadcast, domainState, domains }
 
   const state = new SessionDomain(shared)
+  // 审批/追问/语音域通过 shared.sessions 定向到具体会话（协议 v2）。
+  shared.sessions = state
   const balance = new BalanceDomain(shared)
   const approval = new ApprovalDomain(shared)
   const voice = new VoiceDomain(shared)
@@ -252,6 +254,9 @@ export function createRuntime({ config, logger }) {
   // 审批域需要把"有无审批挂起"告诉状态域 —— 待审批是最高优先级的状态，
   // 它必须压过"运行中"，否则设备会在等待授权的当口显示"运行中"。
   approval.onApprovalChange = (title) => state.setApproval(title)
+  // 协议 v2：审批/追问挂起 → 对应会话变黄色「等待你处理」。
+  approval.onWaitingChange = (sessionId, waiting) => state.setSessionWaiting(sessionId, waiting)
+  questions.onWaitingChange = (sessionId, waiting) => state.setSessionWaiting(sessionId, waiting)
   domains.push(state, balance, approval, voice, questions, pairing)
 
   // 链路事件 → 面板事件。链路的原始事件名与面板事件名不必一致，

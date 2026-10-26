@@ -51,6 +51,8 @@ export class FakeHost extends EventEmitter {
             blank: false,
             parentSessionId: session.parentSessionId,
             origin: session.origin,
+            // DSH 真实形状：标题在 projections.values.title（顶层 title 是旧 fake 的假阳）
+            projections: { values: { title: session.title } },
             title: session.title,
             step: session.step,
             tool: session.tool,
@@ -68,8 +70,14 @@ export class FakeHost extends EventEmitter {
         return { sessionId: session.id, agentPreset: request.agentPreset }
       },
 
-      async prompt(request, _signal) {
+      async prompt(request, signal) {
         host.calls.push({ method: 'prompt', request })
+        // ★ 宿主契约：signal 是运行时必传参数（第一行 signal.throwIfAborted()）。
+        //   旧 fake 忽略它，掩盖了 voice.js 降级直发漏传 signal 的 P0 缺陷。
+        if (!signal || typeof signal.throwIfAborted !== 'function') {
+          throw new Error('prompt 缺少 signal（宿主契约要求必传）')
+        }
+        signal.throwIfAborted()
         if (options.promptFails) throw new Error(options.promptFails)
         if (!host.sessions.has(request.sessionId)) {
           const error = new Error(`会话不存在：${request.sessionId}`)

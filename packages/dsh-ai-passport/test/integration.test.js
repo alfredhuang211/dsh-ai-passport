@@ -184,6 +184,40 @@ test('审批：设备放行 → allowed-once，且不交回下游', async () => 
   await teardown({ runtime })
 })
 
+test('审批 v2：approve.req 带会话 handle/标题，挂起期间该会话变 waiting', async () => {
+  const { host, runtime } = await setupRuntime()
+  host.emit('api-session/added', {
+    sessionId: 'session-a',
+    updatedAt: Date.now(),
+    running: true,
+    blank: false,
+    projections: { values: { title: '重构登录模块' } },
+  })
+  runtime.domains.state.flush()
+
+  const asked = new Promise((resolve) => runtime.subscribe((event) => {
+    if (event.type === 'approval.asked') resolve(event)
+  }))
+  const pending = host.askApproval({ toolName: 'bash', agent: { id: 'session-a' } })
+  const event = await asked
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const req = sentByHost(runtime).find((message) => message.type === MSG.APPROVE_REQ)
+  assert.ok(req, '设备应收到 approve.req')
+  assert.equal(req.title, '重构登录模块', '审批载荷必须带会话标题（R3）')
+  assert.match(String(req.h), /^[0-9a-f]{2}$/, '审批载荷应带会话 handle')
+
+  const waiting = runtime.domains.state.snapshot().sessions.find((s) => s.sessionId === 'session-a')
+  assert.equal(waiting?.state, 'waiting', '挂起期间该会话应显示等待你处理')
+
+  runtime.domains.approval.decide(event.id, 'deny')
+  const result = await pending
+  assert.equal(result.outcome, 'rejected')
+  const after = runtime.domains.state.snapshot().sessions.find((s) => s.sessionId === 'session-a')
+  assert.equal(after?.state, 'running', '审批结束后应回到运行中')
+  await teardown({ runtime })
+})
+
 test('审批：设备拒绝 → rejected', async () => {
   const { host, runtime } = await setupRuntime()
   const asked = new Promise((resolve) => runtime.subscribe((event) => {

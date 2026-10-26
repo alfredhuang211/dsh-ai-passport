@@ -101,6 +101,8 @@ export class VoiceDomain {
     this.logger = shared.logger
     this.broadcast = shared.broadcast
     this.domainState = shared.domainState
+    /** 会话域：把语音定向发送到设备选中的会话（协议 v2）。 */
+    this.sessionDomain = shared.sessions ?? null
 
     /**
      * 会话表：sessionId → 待结束的会话数组（FIFO）。
@@ -189,9 +191,14 @@ export class VoiceDomain {
             channels: Number(message.channels) || AUDIO.CHANNELS,
             codec: message.codec ?? AUDIO.CODEC,
           },
+          // 协议 v2：设备在会话内录音时带 target（会话 handle）。
+          // v1/旧固件没有该字段 → 走原来的"最近运行会话"兜底。
+          target: String(message.target ?? ''),
+          targetSessionId: '',
         }
         // FIFO：sessionId 可能回绕复用，同 id 的多个未结束会话排队。
         const queue = this.sessions.get(sessionId) ?? []
+        session.targetSessionId = this.sessionDomain?.sessionIdOfHandle?.(session.target) ?? ''
         queue.push(session)
         this.sessions.set(sessionId, queue)
         this.broadcast({ type: 'voice.begin', sessionId, format: session.format })
@@ -304,7 +311,12 @@ export class VoiceDomain {
           // 设备按键只报 resultId + 意图，文本真相留在这里，避免两处各存一份。
           const resultId = `v${Date.now().toString(36)}-${this.resultSeq}`
           this.resultSeq = (this.resultSeq + 1) % 0xffff
-          this.resultTexts.set(resultId, { text, at: Date.now() })
+          this.resultTexts.set(resultId, {
+            text,
+            at: Date.now(),
+            targetHandle: session.target,
+            targetSessionId: session.targetSessionId,
+          })
           for (const [id, entry] of this.resultTexts) {
             if (Date.now() - entry.at > RESULT_TTL_MS) this.resultTexts.delete(id)
           }
@@ -326,6 +338,7 @@ export class VoiceDomain {
               sessionId,
               resultId,
               text,
+              ...(session.target ? { h: session.target } : {}),
               audioSeconds: Number((wav.pcmBytes / (session.format.sampleRate * 2)).toFixed(2)),
             })
           } catch (replyError) {
@@ -393,6 +406,18 @@ export class VoiceDomain {
           void this.link.send(MSG.TOAST, { text: '识别结果已过期，请重新说' }).catch(() => {})
           return
         }
+        // 协议 v2：设备在某个会话里录音，发送必须回到那个会话。
+        // 不经过挂件输入框（挂件只代表"当前打开的窗口"，可能是别的会话）。
+        // 这条路径不受 voice.directSend 开关影响：directSend 描述的是"挂件双击直发"，
+        // 设备上明确按了「发送」，就应该发。
+        const targetHandle = String(message.target ?? '')
+        const targetSessionId = this.sessionDomain?.sessionIdOfHandle?.(targetHandle)
+          || entry.targetSessionId
+          || ''
+        if (mode === 'send' && targetSessionId) {
+          void this.#directSend(targetSessionId, entry.text, resultId)
+          return
+        }
         if (mode === 'send' && !this.config.voice.directSend) {
           void this.link.send(MSG.TOAST, { text: '双击直发已关闭，文本在语音列表里可手动填入' }).catch(() => {})
           return
@@ -400,7 +425,14 @@ export class VoiceDomain {
 
         this.domainState.voice = {
           ...(this.domainState.voice ?? {}),
-          pending: { resultId, text: entry.text, mode, at: Date.now(), claimedBy: null },
+          pending: {
+            resultId,
+            text: entry.text,
+            mode,
+            at: Date.now(),
+            claimedBy: null,
+            sessionId: targetSessionId,
+          },
         }
         this.broadcast({ type: 'voice.pending', pending: this.domainState.voice.pending })
         if (mode === 'send') this.#armFallback(resultId)
@@ -474,7 +506,7 @@ export class VoiceDomain {
         this.#clearPending(resultId)
         return
       }
-      void this.#promptFallback(pending.text)
+      void this.#promptFallback(pending.text, pending.sessionId ?? '')
         .then((notice) => {
           this.#clearPending(resultId)
           void this.link.send(MSG.TOAST, { text: notice }).catch(() => {})
@@ -487,26 +519,54 @@ export class VoiceDomain {
   }
 
   /** 降级直发：不经输入框，直接作为一条用户消息排队进目标会话。 */
-  async #promptFallback(text) {
+  async #promptFallback(text, preferredSessionId = '') {
+    const sessionId = preferredSessionId || await this.#resolveTargetSession(this.#controller())
+    if (!sessionId) throw new Error('没有可发送的会话')
+    await this.#promptSession(sessionId, text)
+    return '已直接发送到任务'
+  }
+
+  #controller() {
     const ctx = this.ctx
     const controller = typeof ctx?.get === 'function' ? ctx.get('sessionController') : null
     if (!controller?.prompt) throw new Error('宿主没有 sessionController，无法直发')
-    const sessionId = await this.#resolveTargetSession(controller)
-    if (!sessionId) throw new Error('没有可发送的会话')
+    return controller
+  }
+
+  /**
+   * 向指定会话投递一条文本消息。
+   *
+   * ★ signal 必须传：`sessionController.prompt(request, signal)` 的第一行就是
+   *   `signal.throwIfAborted()` —— 漏传会抛 TypeError，降级直发 100% 失败
+   *   （真机返工记录，P0）。这里统一加 15s 超时，避免宿主卡住。
+   */
+  async #promptSession(sessionId, text) {
+    const controller = this.#controller()
     const requestId = `passport-voice-${Date.now().toString(36)}`
     await controller.prompt({
       requestId,
       sessionId,
       mode: 'queue',
-      // ★ content 必须是**文本分部数组**：SessionPromptRequest 的严格校验只接受
-      //   [{type:'text', text}]，传纯字符串会被拒 —— 现象是降级直发 100% 失败、
-      //   设备 toast「发送失败：…」（真机返工记录）。
+      // content 必须是**文本分部数组**：SessionPromptRequest 的严格校验只接受
+      // [{type:'text', text}]，传纯字符串会被拒。
       content: [{ type: 'text', text }],
-    })
-    return '已直接发送到任务'
+    }, AbortSignal.timeout(15_000))
   }
 
-  /** 直发目标：优先正在跑的会话（语音多是对当前任务的追加指令），否则最近更新的非空会话。 */
+  /** 设备结果卡「发送」：直接发到录音时所在的会话（协议 v2）。 */
+  async #directSend(sessionId, text, resultId) {
+    try {
+      await this.#promptSession(sessionId, text)
+      this.#clearPending(resultId)
+      const title = String(this.sessionDomain?.titleOfSession?.(sessionId) ?? '').slice(0, 12)
+      void this.link.send(MSG.TOAST, { text: title ? `已发送到「${title}」` : '已发送到会话' }).catch(() => {})
+      this.resultTexts.delete(resultId)
+    } catch (error) {
+      void this.link.send(MSG.TOAST, { text: `发送失败：${error?.message ?? error}` }).catch(() => {})
+    }
+  }
+
+  /** 直发目标：优先进会话（语音多是对当前任务的追加指令），否则最近更新的非空会话。 */
   async #resolveTargetSession(controller) {
     try {
       const result = await controller.list({})

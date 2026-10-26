@@ -209,3 +209,36 @@ test('识别结果卡消费链：voice.action → dispatch take/ack → toast �
   assert.equal(repeat.ok, false)
   await runtime.dispose()
 })
+
+
+test('追问 v2：question.req 带会话 handle/标题', async () => {
+  const { host, runtime } = await setupRuntime()
+  runtime.domains.state; // 会话域由运行时创建
+  host.emit('api-session/added', {
+    sessionId: 'session-q',
+    updatedAt: Date.now(),
+    running: true,
+    blank: false,
+    projections: { values: { title: '调研向量库' } },
+  })
+  runtime.domains.state.flush()
+
+  const listener = questionRequestListener(host)
+  const outcomePromise = listener(
+    {
+      callId: 'call-v2',
+      agent: { id: 'session-q' },
+      questions: [{ id: 'q1', question: '选平台', options: [{ label: 'macOS' }] }],
+    },
+    () => new Promise(() => {}),
+  )
+
+  const req = await waitForSent(runtime, MSG.QUESTION_REQ)
+  assert.equal(req.title, '调研向量库', '追问载荷应带会话标题')
+  assert.match(String(req.h), /^[0-9a-f]{2}$/, '追问载荷应带会话 handle')
+
+  await invokeHandler(runtime, MSG.QUESTION_PICK, { callId: 'call-v2', qid: 'q1', selected: ['macOS'] })
+  await invokeHandler(runtime, MSG.QUESTION_ANSWER, { callId: 'call-v2', action: 'submit' })
+  await outcomePromise
+  await runtime.dispose()
+})

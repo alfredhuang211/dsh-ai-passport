@@ -120,9 +120,13 @@ export class QuestionsDomain {
     this.logger = shared.logger
     this.broadcast = shared.broadcast
     this.domainState = shared.domainState
+    /** 会话域：追问弹窗显示「会话：<标题>」用（协议 v2）。 */
+    this.sessions = shared.sessions ?? null
     this.ctx = null
     this.unsubscribes = []
     this.disposers = []
+    /** 某会话进入/离开「等待人工」：组合根注入（指向 SessionDomain.setSessionWaiting）。 */
+    this.onWaitingChange = null
 
     /** 当前送到设备上的那一批（一次只接一批：设备同一时刻只显示一个覆盖页）。 */
     this.pending = null
@@ -380,6 +384,29 @@ export class QuestionsDomain {
   }
 
   /**
+   * 推导追问所属会话与标题（协议 v2）。
+   *
+   * 必须保持**同步**：追问是竞速模型，电脑卡片与设备同时开跑；若这里 await
+   * 回查 list()，设备会晚一个微任务才收到 question.req —— 单元测试与真机时序
+   * 都会变得不确定（历史教训：异步化后"先只发第 1 题"的断言直接失败）。
+   * 标题优先取会话域缓存；取不到就留空（设备侧显示兜底文案）。
+   */
+  #resolveSessionContext(request) {
+    const sessionId = String(request?.agent?.id ?? request?.agent?.session?.id ?? '')
+    let title = this.sessions?.titleOfSession?.(sessionId) ?? ''
+    if (!title && sessionId) {
+      try {
+        const service = typeof this.ctx?.get === 'function' ? this.ctx.get('sessionTitle') : null
+        title = String(service?.get?.(request?.agent?.session)?.title ?? '').trim()
+      } catch {
+        // 服务不可用：留空
+      }
+    }
+    const handle = this.sessions?.handleOfSession?.(sessionId) ?? ''
+    return { sessionId, title: String(title ?? '').trim(), handle }
+  }
+
+  /**
    * 设备分支：把整批问题逐题推到设备，等它作答。
    *
    * @returns {Promise<{kind:'answer',value:object,from:'device'}|{kind:'reject',error:Error}|null>}
@@ -387,6 +414,7 @@ export class QuestionsDomain {
    *   **不再 next() 交回电脑端**：电脑卡片从一开始就显示着。
    */
   #startDeviceBatch(request, questions) {
+    const context = this.#resolveSessionContext(request)
     const isPlanReview = questions.some((q) => q.intent?.kind === 'plan-review')
     // ★ 计划待审**不设超时**（用户要求）：一直停在设备页，等到用户在电脑端或设备端作答。
     //   普通追问仍按 questions.timeoutMs 收页（未在需求内，行为不变）。
@@ -395,6 +423,9 @@ export class QuestionsDomain {
       this.pending = {
         callId: extractCallId(request),
         kind: isPlanReview ? 'plan' : 'choice',
+        sessionId: context.sessionId,
+        sessionTitle: context.title,
+        handle: context.handle,
         questions,
         picks: new Map(),
         index: 0,
@@ -425,6 +456,7 @@ export class QuestionsDomain {
         }, CONTINUED_GRACE_MS)
       }, { once: true })
 
+      this.onWaitingChange?.(context.sessionId, true)
       this.logger('info', `[questions] 收到 ${questions.length} 道追问（${this.pending.kind}），送设备作答`)
       this.#sendQuestion(0)
     })
@@ -443,6 +475,7 @@ export class QuestionsDomain {
     if (pending.timer) clearTimeout(pending.timer)
     if (pending.abortTimer) clearTimeout(pending.abortTimer)
     this.pending = null
+    this.onWaitingChange?.(pending.sessionId, false)
 
     if (reason === 'timeout' || reason === 'disconnected') {
       this.#sendDone(pending.callId, false, reason)
@@ -465,6 +498,7 @@ export class QuestionsDomain {
     if (pending.timer) clearTimeout(pending.timer)
     if (pending.abortTimer) clearTimeout(pending.abortTimer)
     this.pending = null
+    this.onWaitingChange?.(pending.sessionId, false)
     // ★ 计时追问的补答：收尾由投递结果决定（成功 = continued-answered），
     //   这里不能先发 done —— 否则设备会先显示"已提交"，而投递可能失败。
     if (!pending.continued) this.#sendDone(pending.callId, true, 'submitted')
@@ -479,6 +513,7 @@ export class QuestionsDomain {
     pending.settled = true
     if (pending.timer) clearTimeout(pending.timer)
     this.pending = null
+    this.onWaitingChange?.(pending.sessionId, false)
     this.logger('info', `[questions] 设备「要求修改」：拒绝等待（ASK_CANCELLED）批 ${pending.callId}`)
     pending.settle({ kind: 'reject', error })
     this.broadcast({ type: 'question.updated', question: null })
@@ -575,6 +610,8 @@ export class QuestionsDomain {
 
     const payload = {
       callId: pending.callId,
+      ...(pending.handle ? { h: pending.handle } : {}),
+      ...(pending.sessionTitle ? { title: clampSummary(pending.sessionTitle, 16) } : {}),
       kind: question.intent?.kind === 'plan-review' ? 'plan' : 'choice',
       index,
       total: pending.questions.length,

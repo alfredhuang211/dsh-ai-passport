@@ -649,6 +649,35 @@ export class SessionDomain {
     Promise.resolve(this.link.send(MSG.TOAST, { text })).catch(() => {})
   }
 
+  // ── 审批/追问/语音共用的映射与等待态 ─────────────────────────────────────
+
+  /** handle → sessionId（设备发来的 target/h 用）。 */
+  sessionIdOfHandle(handle) {
+    return this.sessionByHandle.get(String(handle ?? '')) ?? ''
+  }
+
+  /** sessionId → handle（主机下发的 approve.req / question.req 用；未知返回空串）。 */
+  handleOfSession(sessionId) {
+    return this.handleBySession.get(String(sessionId ?? '')) ?? ''
+  }
+
+  titleOfSession(sessionId) {
+    return this.sessions.get(String(sessionId ?? ''))?.title ?? ''
+  }
+
+  /** 某会话进入/离开「等待人工」（审批/追问挂起 → 黄色图标 + 列表中更新排序）。 */
+  setSessionWaiting(sessionId, waiting) {
+    const id = String(sessionId ?? '')
+    if (!id) return
+    const record = this.#recordOf(id)
+    if (!record) return
+    const next = Boolean(waiting)
+    if (record.waiting === next) return
+    record.waiting = next
+    record.updatedAt = now()
+    this.push()
+  }
+
   // ── 对外接口（兼容旧 StateDomain 的调用点）─────────────────────────────────
 
   /** 审批挂起状态（S3 会扩展为按会话；当前保持 v1 签名）。 */
