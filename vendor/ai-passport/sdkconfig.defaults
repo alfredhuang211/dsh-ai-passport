@@ -1,0 +1,71 @@
+# --- 目标芯片 ---
+CONFIG_IDF_TARGET="esp32c3"
+# 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
+
+# --- Flash ---
+# FoloToy AI Passport 当前产品/固件基线使用 8MB Flash。
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# 固定 8MB 镜像头，关闭 detect，便于 idf.py merge-bin。
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
+# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- 控制台:USB-Serial-JTAG(C3 原生 USB,GPIO18/19)---
+# 不用 UART0:其默认 TX=GPIO21 与本板背光引脚冲突。
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# --- LVGL ---
+CONFIG_LV_COLOR_DEPTH_16=y
+# 20 ms display refresh period targets up to 50 FPS when rendering and SPI
+# transfer complete within the same budget.
+CONFIG_LV_DEF_REFR_PERIOD=20
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+# LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
+# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
+# LVGL 内存池。
+#
+# 这个数字在"UI 够用"和"给截屏缓冲腾地方"之间取平衡，试过两轮：
+#   · 24KB（上游默认）→ 本应用控件更多（任务台 6 行 + 提示条 + 3 个覆盖层），
+#     **池满时 LVGL 在「固定池 + LV_OS_NONE」下不返回 NULL 而是挂死**，
+#     表现为位置不定的卡死（主任务停在随机某个 lv_obj_create 上、看门狗反复触发）。
+#   · 64KB → UI 稳定，但 DRAM 被切碎，串口截屏需要的 150KB 连续块拿不到
+#     （最大连续块只剩 25,600 字节）。
+#   · 32KB / 64KB 都能让 UI 稳定跑；64KB 余量更足。
+#     （曾为给"串口截屏"的整屏缓冲腾地方试过压到 32KB，后来截屏改为可选且默认关闭，
+#       就不再牺牲 UI 内存了。）
+# 若以后 UI 再大幅变复杂，先看是否还能稳定跑，再考虑加池。
+CONFIG_LV_MEM_SIZE_KILOBYTES=64
+
+# --- 系统 ---
+CONFIG_FREERTOS_HZ=1000
+
+# --- Bluetooth LE / NimBLE ---
+# ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+
+# ── AI Passport × DSH 联机应用 ─────────────────────────────────────────────
+# 中文字体用**自己生成的子集**（main/fonts/app_ui_font_16.c，由
+# tools/make-font-subset.py 从思源黑体生成，只含界面实际用到的 144 个字符）。
+#
+# 曾用过 LVGL 内置的 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK，但它的字符集
+# 是示例里随手挑的，本界面 48 个中文字里缺 23 个 —— 那些位置显示成方框。
+# 因此内置 CJK 字体保持关闭（顺带省下约 1.2MB flash）。
+#
+# 上游规范警告："UTF-8 正确 + 编译成功"都不代表能显示中文，仍须真机验收。
+CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=n
+
+# 串口截屏（FAP_SCREENSHOT_V1）需要 LVGL 的快照能力。
+# 不启用时 lv_snapshot_* 整体不可用，第一症状是"隐式声明"编译错误。
+CONFIG_LV_USE_SNAPSHOT=y

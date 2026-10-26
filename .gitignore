@@ -1,11 +1,10 @@
 # ---------------------------------------------------------------------------
-# 本仓库 = 挂件端（DSH 插件）+ 跨端文档与工具。
+# 本仓库 = DSH 插件 + 设备端固件源码（vendor/ai-passport）+ 跨端文档与工具。
 #
-# 设备端固件不在这里：vendor/ai-passport 是一个独立的 git 仓库
-# （上游 FoloToy/ai-passport 的 fork，开发分支 feature/dsh-passport），
-# 需单独 clone，本仓库只把它当外部依赖看待。
+# 固件源码通过 subtree merge 从 ai-passport-dsh 历史引入；它自己的 .gitignore
+# 仍然生效（构建产物 build/、managed_components/、sdkconfig 等不会入库）。
+# 第三方音效采样（main/alert_cough_*.h）也由固件侧 .gitignore 排除。
 # ---------------------------------------------------------------------------
-vendor/
 
 # Node
 node_modules/

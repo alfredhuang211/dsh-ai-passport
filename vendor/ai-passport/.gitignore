@@ -1,0 +1,20 @@
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+.vscode/
+.idea/
+
+# Generated repository-local links; canonical skill sources live in skills/.
+/.agents/skills/passport-develop
+/.agents/skills/passport-setup
+/.agents/skills/passport-build
+/.agents/skills/passport-device-test
+/.agents/skills/passport-debug
+
+# macOS
+.DS_Store
+
+# 第三方音效采样（仅本地构建，腾讯版权；缺失时固件回落到合成音，见 docs/09 §6.8）
+/main/alert_cough_double.h
+/main/alert_cough_single.h

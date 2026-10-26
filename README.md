@@ -9,30 +9,32 @@
 ```
 ┌─ AI Passport（设备） ─┐   BLE 5（GATT，自定义帧 + JSON）   ┌─ Mac/Win + DSH ───┐
 │  ESP32-C3 固件        │ ◄──────────────────────────────► │  本插件（npm 包）   │
-│  app_*.c / LVGL UI   │      协议 v1 · 双端常量同步        │  ble/bridge/panel  │
+│  app_*.c / LVGL UI   │      协议 v2 · 双端常量同步        │  ble/bridge/panel  │
 └──────────────────────┘                                   └───────────────────┘
 ```
 
-## 双仓库结构
+## 单仓库结构
 
-本项目拆成两个 git 仓库，各自独立构建与发版：
+插件与固件源码在**同一个仓库**里，统一构建、同版本发版：
 
-| 仓库 | 内容 | 地址 |
-| --- | --- | --- |
-| **本仓库**（挂件端） | DSH 插件（npm 包）+ 跨端文档 `docs/` + 主机侧工具 | `dsh-ai-passport-plugin` |
-| **固件仓库**（设备端） | `app_*.c` 固件源码，独立仓库，基于上游二次开发 | [`ai-passport-dsh`](https://github.com/slinxiaosun-blip/ai-passport-dsh) |
+| 目录 | 内容 |
+| --- | --- |
+| `packages/dsh-ai-passport/` | DSH 插件（npm 包：BLE 桥、协议、面板、客户端 bundle） |
+| `vendor/ai-passport/` | ESP32-C3 固件源码（`app_*.c` / LVGL UI / BSP / 测试），基于上游 FoloToy/ai-passport 二次开发 |
+| `docs/` | 跨端设计、构建烧录、验收文档 |
+| `tools/` | 固件构建、烧录、字体子集、音效素材生成脚本 |
 
-开发时固件 clone 到本目录的 `vendor/ai-passport`（已被 `.gitignore` 排除）：
+固件的环境、编译、烧录见 [docs/03-构建与烧录.md](docs/03-构建与烧录.md)：
 
 ```bash
-git clone -b feature/dsh-passport \
-  https://github.com/slinxiaosun-blip/ai-passport-dsh.git vendor/ai-passport
+source ~/esp/esp-idf-v5.5.3/export.sh
+cd vendor/ai-passport && ./tools/validate.sh          # 静态门禁 + host 测试 + 固件构建
 ```
 
-固件的环境、编译、烧录见 [docs/03-构建与烧录.md](docs/03-构建与烧录.md)。
-
-不打算自己编译固件的话，直接从 [Releases](https://github.com/slinxiaosun-blip/ai-passport-dsh/releases/latest)
-下载 `FoloToy-AI-Passport-full.bin`，从 `0x0` 一次性刷入即可。
+历史固件仓库 [`ai-passport-dsh`](https://github.com/slinxiaosun-blip/ai-passport-dsh) 仍保留
+（用于对照上游与历史 Release）。本仓 `vendor/ai-passport` 是最新源码快照（含协议 v2 / 多会话 / 2.0.0 改造）。
+不打算自己编译固件的话，可直接用该仓库的 [Releases](https://github.com/slinxiaosun-blip/ai-passport-dsh/releases/latest)
+镜像（注意：Release 可能落后于本仓源码，以本仓 `vendor/ai-passport/version.txt` 为准）。
 
 ## 功能
 
@@ -77,8 +79,8 @@ macOS 限 Apple Silicon；Windows 需 Windows 10 1703+（x64，noble 有 win32-x
 ARM64 需源码编译，见 [docs/08](docs/08-Windows反馈清单.md)）。
 
 ```bash
-# 0) clone 本仓库（固件不需要时可不 clone）
-git clone https://github.com/slinxiaosun-blip/dsh-ai-passport-plugin.git
+# 0) clone 本仓库（插件 + 固件源码都在里面）
+git clone https://github.com/alfredhuang211/dsh-ai-passport.git
 cd dsh-ai-passport-plugin
 
 # 1) 安装依赖
@@ -149,7 +151,7 @@ http://127.0.0.1:19387/dsh-passport
   设备固件行为不变、一次烧录两端通用，`1.1.0` 仅是版本对齐。
 - `1.0.0` —— 阶段 A/B/C 全功能首个版本（任务台/审批/余额/语音/配对）。
 
-> 设备固件见 [ai-passport-dsh releases](https://github.com/slinxiaosun-blip/ai-passport-dsh/releases)：
+> 固件源码已并入本仓 `vendor/ai-passport/`；历史 Release 见 [ai-passport-dsh](https://github.com/slinxiaosun-blip/ai-passport-dsh/releases)：
 > `1.2.1`（录音上限 15s → 30s，取消静音 1.2s 自动结束，说话中途的停顿不再被切断）。
 > 协议 v2 起双端需同一代；旧固件 v1 仍可被新插件兼容一个版本周期，反之不保证。
 

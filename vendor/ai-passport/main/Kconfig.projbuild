@@ -1,0 +1,21 @@
+menu "AI Passport × DSH 联机应用"
+
+    config APP_ENABLE_SCREENSHOT
+        bool "启用串口截屏（FAP_SCREENSHOT_V1）"
+        default n
+        help
+            允许主机经 USB 串口抓取整屏画面，供开发与验收使用。
+
+            ★ 默认关闭，原因是**内存放不下**：整屏 RGB565 缓冲需要 153,600 字节，
+            而本应用同时跑 BLE + LVGL + 音频 + 出站重传池，DRAM 里拿不出这么一块
+            连续空间。两条路都试过：
+              · 运行时从堆申请 —— 最大连续块只有 25,600 字节（被 LVGL 池与协议栈切碎）；
+              · 编译期静态预留 —— 链接器报 dram0_0_seg 溢出（即便把 LVGL 池压到 32KB
+                仍差约 19KB）。
+            要看屏幕时把本项打开并单独烧一次（此时 BLE 仍可用，但内存更紧张），
+            用完建议关回去；也可以直接给设备屏幕拍照，效果一样且不占内存。
+
+            本选项由 main/app_screenshot.c 实现，是一份按上游
+            docs/reference/y2lin/serial-screenshot-protocol.zh_CN.md 落地的参考实现。
+
+endmenu
