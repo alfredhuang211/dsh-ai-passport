@@ -27,6 +27,8 @@
 #include "app_settings.h"
 #include "app_voice.h"
 #include "app_ui.h"
+// 多应用启动器（MetaPass2）子固件适配：运行形态判别 + 根页面返回启动器。
+#include "ap_launcher_hook.h"
 
 #include "bsp_audio.h"
 #include "bsp_battery.h"
@@ -794,6 +796,29 @@ static bool handle_key(const key_msg_t *key)
         return false;
     }
 
+    // ★ 多应用启动器（MetaPass2）子固件：根页面（会话列表）确定长按 = 返回启动器。
+    //
+    //   判据刻意用**当前页面枚举**，而不是"按键是否已被消费"：
+    //     · AP_SCREEN_SESSIONS 就是 v2 的根页面（docs/09 §6.1 D4），该页的
+    //       "确定长按"在按键矩阵里本来就是**留空**的（§6.2 C2），拿来当返回手势
+    //       不会与任何既有动作冲突；
+    //     · 会话页（AP_SCREEN_SESSION）的确定是**按住说话 PTT**（按下即录、松手结束），
+    //       绝不能在这里截走 —— 页面枚举不同，天然隔离；
+    //     · 审批 / 追问 / 计划 / 结果卡 / 余额 / 设置 / 配对各自有自己的
+    //       s_current（单覆盖层不变式），因此弹窗与设置页也不会误触发；
+    //     · AP_SCREEN_NONE（旧四态主页）同样不触发：那一页的确定按下/松开就是
+    //       语音 PTT，而 BSP 长按门限只有 500ms，绑上去会把"说话超过 0.5 秒"
+    //       变成"退回启动器"。
+    //   解锁后再返回：ap_launcher_return() 在 standalone/factory 模式下是安全
+    //   no-op（会返回），子槽模式下 esp_restart() 不返回；两种路径都不能漏锁。
+    if (app_screens_current() == AP_SCREEN_SESSIONS &&
+        key->btn == BSP_BTN_OK && key->event == BSP_BTN_LONG) {
+        bsp_lvgl_unlock();
+        ESP_LOGI(TAG, "根页面长按确定：请求返回启动器");
+        (void)ap_launcher_return();
+        return true;
+    }
+
     const bool consumed = app_ui_handle_key(key->btn, key->event);
     const ap_screen_t screen = app_screens_current();
     ESP_LOGD(TAG, "按键 btn=%d ev=%d 消费=%d 覆盖层=%d",
@@ -956,10 +981,24 @@ void passport_app_main(void)
     // "esp_phy_load_cal_data_from_nvs: NVS has not been initialized"。
     // 功能上不影响（协议栈内部会兜底），但日志不干净会掩盖真正的问题。
     // 版本不匹配等错误按上游惯例擦除重建，仍失败则继续（BLE 通常照样能用）。
+    //
+    // ★ 启动器子槽形态（多应用）：NVS 分区是**启动器与所有子固件共享**的
+    //   （见项目 README「部署方式」），擦掉会把启动器的安装表 / 其它子固件的
+    //   配对设置一起抹掉 —— 那不是本应用该做的破坏。因此子槽模式下"擦除重建"
+    //   降级为"记错误并继续"（本次会话内配对/设置退化为内存态，日志里可见），
+    //   standalone 形态保留原有的擦除重建语义。
+    const bool launcher_child = ap_launcher_running_child();
+    ESP_LOGI(TAG, "launcher child mode=%d（1=启动器 OTA 子槽，0=factory/standalone）",
+             (int)launcher_child);
     esp_err_t nvs_err = nvs_flash_init();
     if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        (void)nvs_flash_erase();
-        nvs_err = nvs_flash_init();
+        if (launcher_child) {
+            ESP_LOGE(TAG, "NVS 不可用(%s)：启动器子槽模式下不擦除共享 NVS，继续运行",
+                     esp_err_to_name(nvs_err));
+        } else {
+            (void)nvs_flash_erase();
+            nvs_err = nvs_flash_init();
+        }
     }
 
     // ★ 自动休眠门控放在**最前面**（界面/链路/背光都还没起来）：

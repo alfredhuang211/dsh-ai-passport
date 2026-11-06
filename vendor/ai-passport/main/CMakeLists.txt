@@ -20,6 +20,7 @@ idf_component_register(
          "app_alert.c"
          "app_voice.c"
          "app.c"
+         "ap_launcher_hook.c"
          "fonts/bitfont_8.c"
          "fonts/bitfont_16.c"
          "fonts/app_ui_font_cjk.c"
@@ -41,7 +42,9 @@ idf_component_register(
     INCLUDE_DIRS "."
     # 串口截屏默认关闭（整屏缓冲 150KB 放不下，见 main/Kconfig.projbuild）
 
-    REQUIRES bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
+    # app_update：启动器子固件适配（ap_launcher_hook.c）要用
+    # esp_ota_get_running_partition / esp_ota_set_boot_partition。
+    REQUIRES app_update bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
 )
 
 # ── 固件版本 ────────────────────────────────────────────────────────────────
