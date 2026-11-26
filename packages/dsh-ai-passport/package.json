@@ -1,7 +1,6 @@
 {
-  "name": "dsh-ai-passport",
+  "name": "@alfredhuang211/dsh-ai-passport",
   "version": "2.0.0",
-  "private": true,
   "type": "module",
   "description": "AI Passport × DeepSeek Harness 联动插件：BLE 联机、任务新建与选择、执行状态显示、完成提醒、任务审批、DeepSeek 余额、语音输入",
   "keywords": [
@@ -21,8 +20,12 @@
   "main": "lib/index.js",
   "files": [
     "lib",
+    "!lib/**/*.test.js",
+    "locale",
+    "icon.svg",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test \"lib/**/*.test.js\" \"test/**/*.test.js\""
@@ -39,21 +42,32 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.1 <0.3.0 || >=0.2.3-alpha.2 <0.3.0"
   },
   "author": "slinxiaosun-blip",
   "license": "MIT",
   "exports": {
     "./client": "./lib/client.js",
     ".": "./lib/index.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
-  "dependencies": {
+  "publishConfig": {
+    "access": "public"
+  },
+  "icon": "./icon.svg",
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": ">=3.18.0",
     "@stoprocent/noble": "^2.8.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@stoprocent/noble"
-    ]
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@stoprocent/noble": {
+      "optional": true
+    }
   }
 }

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "AI Passport",
+    "description": "Connect a FoloToy AI Passport (ESP32-C3) device to DSH over Bluetooth: create and pick sessions on the device, see run status, get completion reminders, approve tool calls from the device, check your DeepSeek balance, and dictate instructions by voice. Needs a Bluetooth adapter and matching device firmware; the BLE bridge runs in a separate process."
+  }
+}

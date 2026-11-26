@@ -1,0 +1,128 @@
+name: publish
+
+# Publishing runs from a tag, never from a branch push: the tag is the decision,
+# and the workflow only carries it out.
+#
+# This is a monorepo — the publishable package is `packages/dsh-ai-passport`
+# while the repository root also builds firmware. The tag still lives at the
+# repository level, so every publish job pins the package directory explicitly.
+on:
+  push:
+    tags:
+      - 'v*'
+  # A manual run that publishes nothing, to check the pipeline after a
+  # dependency or workflow change.
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Only build and pack; do not publish'
+        type: boolean
+        default: true
+
+# Trusted publishing (OIDC) needs `id-token: write`; nothing else is written.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: packages/dsh-ai-passport
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Node 24, not 22: OIDC trusted publishing needs npm >= 11.5.1, and Node 22
+      # ships npm 10.x, which would never attempt the OIDC exchange.
+      #
+      # No `registry-url` on purpose. Setting it makes setup-node write
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into the runner's
+      # .npmrc and export GITHUB_TOKEN in its place; npm then sees a credential
+      # and never tries OIDC, which the registry rejects as a misleading
+      # `E404 Not Found - PUT ...` — even though provenance signed fine.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          # setup-node enables caching automatically when package.json names npm
+          # as packageManager; this input turns that off. Never reuse a
+          # dependency cache in a release build: a poisoned or stale cache would
+          # end up inside a published artifact.
+          package-manager-cache: false
+
+      # The workspace root owns the lockfile, so install from there. The package
+      # itself declares no runtime dependencies — noble and schemastery are
+      # optional peers resolved by the consuming Harness.
+      - name: Install
+        working-directory: .
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # Proves the tarball builds and shows exactly what would ship.
+      - name: Pack
+        run: npm pack --dry-run
+
+      - name: Check the tag matches the manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          manifest="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match packages/dsh-ai-passport version $manifest"
+            exit 1
+          fi
+          echo "Tag and manifest agree on $manifest"
+
+      # Refuse to publish with a stale credential present: npm prefers any
+      # `_authToken`/`NODE_AUTH_TOKEN` over the OIDC exchange, and the failure it
+      # produces (`E404 on PUT`) names neither the token nor the variable.
+      - name: Assert no static npm credential is present
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NODE_AUTH_TOKEN is set; npm would use it instead of OIDC"
+            exit 1
+          fi
+          if grep -q "_authToken" "$HOME/.npmrc" 2>/dev/null; then
+            echo "::error::~/.npmrc carries an _authToken; npm would use it instead of OIDC"
+            exit 1
+          fi
+          echo "No static credential present; npm will use OIDC"
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish --access public --provenance
+
+      - name: Publish (dry run requested)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry-run
+        run: |
+          echo "Dry run: skipping publish. The pack step above proved the tarball builds."
+
+      - name: Verify the release is installable
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          base="${name##*/}"
+          # npm registers the version before its tarball is servable; poll until
+          # the artifact actually downloads, because that HTTP status is what
+          # consumers hit.
+          for attempt in $(seq 1 40); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://registry.npmjs.org/${name}/-/${base}-${version}.tgz" || true)"
+            if [ "$code" = "200" ]; then
+              echo "::notice::$name@$version is installable"
+              exit 0
+            fi
+            echo "attempt $attempt: tarball HTTP $code; waiting"
+            sleep 15
+          done
+          echo "::error::$name@$version was published but its tarball never became available"
+          exit 1

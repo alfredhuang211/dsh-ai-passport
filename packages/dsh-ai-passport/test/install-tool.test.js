@@ -13,11 +13,20 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  PACKAGE_NAME,
   PLUGIN_SRC,
   resolveDshHome,
   linkModeFor,
   installProfile,
 } from '../../../tools/install-plugin-to-dsh.mjs'
+
+/**
+ * node_modules 里的落点。从被测模块读包名，不再硬编码：包改成 scoped 名之后，
+ * 写死的 'dsh-ai-passport' 会让这些断言指向一个永远不存在的位置。
+ */
+function installTarget(home) {
+  return path.join(home, 'profiles', 'desktop', 'node_modules', ...PACKAGE_NAME.split('/'))
+}
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -80,7 +89,7 @@ test('installProfile：junction 失败（权限/策略）→ 降级 copy + 写�
     },
   })
   assert.equal(result.mode, 'copy')
-  const target = path.join(home, 'profiles', 'desktop', 'node_modules', 'dsh-ai-passport')
+  const target = installTarget(home)
   assert.ok(fs.existsSync(path.join(target, 'package.json')), 'copy 模式要带 package.json')
   assert.ok(fs.existsSync(path.join(target, 'lib', 'index.js')), 'copy 模式要带 lib/')
   const marker = JSON.parse(
@@ -97,7 +106,7 @@ test('installProfile：macOS 分支走 dir 符号链接，重装会清掉旧目�
   makeFakeProfile(home)
   const first = installProfile({ dshHome: home, profile: 'desktop', platform: 'darwin' })
   assert.equal(first.mode, 'symlink')
-  const target = path.join(home, 'profiles', 'desktop', 'node_modules', 'dsh-ai-passport')
+  const target = installTarget(home)
   assert.ok(fs.lstatSync(target).isSymbolicLink())
 
   // 造一个"旧的 copy 安装"，重装必须整体替换且不伤源码目录
@@ -127,7 +136,7 @@ test('copy 模式不携带 node_modules 与 audio 产物', () => {
     platform: 'win32',
     forceCopy: true,
   })
-  const target = path.join(home, 'profiles', 'desktop', 'node_modules', 'dsh-ai-passport')
+  const target = installTarget(home)
   assert.ok(!fs.existsSync(path.join(target, 'node_modules')), 'node_modules 不进 copy')
   assert.ok(!fs.existsSync(path.join(target, 'audio')), 'audio 联调产物不进 copy')
   assert.ok(fs.existsSync(path.join(target, 'cordis.patch.yml')))

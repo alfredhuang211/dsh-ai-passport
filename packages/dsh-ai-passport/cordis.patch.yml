@@ -21,7 +21,7 @@
 
 - insert:
     - id: dsh-ai-passport
-      name: dsh-ai-passport
+      name: '@alfredhuang211/dsh-ai-passport'
       config:
         transport: bridge
         # ★ autoConnect 默认 false：不要在**宿主启动关键路径**上 spawn 桥进程。

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "AI Passport",
+    "description": "把 FoloToy AI Passport（ESP32-C3）设备通过蓝牙接进 DSH：在设备上新建与选择任务、看执行状态、收完成提醒、做工具审批、查 DeepSeek 余额，并用语音下指令。需要蓝牙适配器和匹配的固件版本；蓝牙桥在独立进程里运行。"
+  }
+}

@@ -17,10 +17,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-// 版本号从 package.json 读：避免发布时"忘了同步测试里的硬编码版本"这种低级漂移。
-const PKG_VERSION = JSON.parse(await readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version
+// 版本号与包名都从 package.json 读：避免发布时"忘了同步测试里的硬编码值"这种低级漂移。
+// 包名一旦加 scope（@alfredhuang211/…），硬编码的那份就会和 bundle 的 id 对不上，
+// 而这条断言恰恰是"id 必须严格等于包名"的唯一守卫。
+const MANIFEST = JSON.parse(await readFile(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'))
+const PKG_VERSION = MANIFEST.version
 const CLIENT_BUNDLE = path.join(PACKAGE_ROOT, 'lib', 'client.js')
-const PACKAGE_NAME = 'dsh-ai-passport'
+const PACKAGE_NAME = MANIFEST.name
 
 const SETTINGS_SLOT = 'settings.section'
 const INDICATOR_SLOT = 'conversation.session.header.utilities'

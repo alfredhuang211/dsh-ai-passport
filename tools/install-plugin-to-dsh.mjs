@@ -30,6 +30,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const PLUGIN_SRC = path.join(REPO_ROOT, 'packages', 'dsh-ai-passport')
+/**
+ * node_modules 里的落点必须是包清单里的 name（现在是 @alfredhuang211/dsh-ai-passport）。
+ * 从清单读，而不是另写一份：改名时这一处不再需要人工同步。
+ */
+export const PACKAGE_NAME = JSON.parse(
+  fs.readFileSync(path.join(PLUGIN_SRC, 'package.json'), 'utf8'),
+).name
 const INSTALL_MARKER = '.dsh-passport-install.json'
 
 /** copy 模式只带走运行所需内容；node_modules 在 profile 层，audio 是联调产物。 */
@@ -78,7 +85,9 @@ export function installProfile(options) {
 
   const nodeModules = path.join(dir, 'node_modules')
   fs.mkdirSync(nodeModules, { recursive: true })
-  const target = path.join(nodeModules, 'dsh-ai-passport')
+  const target = path.join(nodeModules, ...PACKAGE_NAME.split('/'))
+  // scoped 包的落点比无 scope 名多一层（@scope/），symlink 不会替你建它。
+  fs.mkdirSync(path.dirname(target), { recursive: true })
 
   // 先清掉旧安装（符号链接 / junction / 复制目录都走这里）。
   // fs.rmSync 对链接只删链接本身、不动源码目录，安全。
@@ -171,7 +180,7 @@ function main(argv) {
     }
     installed += 1
     const label = { junction: '已链接（junction）', symlink: '已链接（symlink）', copy: '已复制' }[result.mode]
-    console.log(`   ${label} node_modules/dsh-ai-passport -> ${PLUGIN_SRC}`)
+    console.log(`   ${label} node_modules/${PACKAGE_NAME} -> ${PLUGIN_SRC}`)
     console.log('   完成。改源码后**无需再同步**；宿主侧改动仍需重启 DSH 生效。')
   }
 

@@ -29,7 +29,7 @@ import { registerTools } from './tools/index.js'
 import { SettingsStore } from './settings-store.js'
 import { MSG } from './protocol/constants.js'
 
-export const name = 'dsh-ai-passport'
+export const name = '@alfredhuang211/dsh-ai-passport'
 
 /** 面板地址，供日志与工具提示引用。 */
 export const PANEL_PATH = '/dsh-passport'

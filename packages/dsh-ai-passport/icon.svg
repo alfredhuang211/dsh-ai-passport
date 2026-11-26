@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="t">
+  <title id="t">A handheld device linked to a computer over Bluetooth</title>
+
+  <!-- handheld device -->
+  <rect x="8" y="18" width="18" height="30" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.6" stroke-width="2.4"/>
+  <rect x="12" y="24" width="10" height="3" rx="1.5" fill="currentColor" fill-opacity="0.55"/>
+  <rect x="12" y="30" width="7" height="3" rx="1.5" fill="currentColor" fill-opacity="0.3"/>
+  <circle cx="17" cy="42" r="2.2" fill="currentColor" fill-opacity="0.45"/>
+
+  <!-- bluetooth link -->
+  <path d="M30 30 L36 24 L36 40 L30 34 M36 24 L42 30 L30 38" fill="none" stroke="currentColor" stroke-opacity="0.65" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- computer -->
+  <rect x="44" y="20" width="16" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-opacity="0.6" stroke-width="2.4"/>
+  <path d="M40 42 H64" stroke="currentColor" stroke-opacity="0.5" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M52 33 V38" stroke="currentColor" stroke-opacity="0.5" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

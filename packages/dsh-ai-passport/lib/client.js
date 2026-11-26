@@ -26,7 +26,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-ai-passport',
+  id: '@alfredhuang211/dsh-ai-passport',
   factory: (require) => {
     const React = require('react')
     const { createElement: h, useState, useEffect, useRef, useCallback } = React
