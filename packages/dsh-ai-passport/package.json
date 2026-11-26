@@ -3,6 +3,15 @@
   "version": "2.0.1",
   "type": "module",
   "description": "AI Passport × DeepSeek Harness 联动插件：BLE 联机、任务新建与选择、执行状态显示、完成提醒、任务审批、DeepSeek 余额、语音输入",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alfredhuang211/dsh-ai-passport.git",
+    "directory": "packages/dsh-ai-passport"
+  },
+  "homepage": "https://github.com/alfredhuang211/dsh-ai-passport/tree/main/packages/dsh-ai-passport#readme",
+  "bugs": {
+    "url": "https://github.com/alfredhuang211/dsh-ai-passport/issues"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",

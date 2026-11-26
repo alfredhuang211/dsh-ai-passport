@@ -262,6 +262,24 @@ the OIDC exchange. The symptom is a signed provenance statement followed by
 
 **Node 24, not 22.** OIDC needs npm ≥ 11.5.1; Node 22 ships npm 10.x.
 
+### `repository` must point here
+
+`--provenance` signs the tarball and the registry cross-checks the claim against
+the workflow that built it. `package.json` therefore needs:
+
+```json
+"repository": {
+  "type": "git",
+  "url": "git+https://github.com/alfredhuang211/dsh-ai-passport.git",
+  "directory": "packages/dsh-ai-passport"
+}
+```
+
+`directory` matters because the package sits below the repository root. Without
+the field the publish is rejected with `E422 ... "repository.url" is ""` — after
+the provenance statement was already signed, so the log looks like it got further
+than it did.
+
 ### Requirements that are not in this repository
 
 | Field | Value |
@@ -281,6 +299,7 @@ the OIDC exchange. The symptom is a signed provenance statement followed by
 |---|---|
 | `ERR_PNPM_IGNORED_BUILDS` on `add @alfredhuang211/dsh-ai-passport` | noble is back in `dependencies`. See §2. |
 | Plugin installed but never appears / not in `dsh.profile.bundles` | the install exited non-zero after writing the dependency but before the bundle was appended. Re-read §2. |
+| `E422 ... Failed to validate repository information: "repository.url" is ""` | provenance needs `package.json` `repository.url` to match the repo the workflow ran in. A monorepo subpackage also needs `repository.directory`. |
 | `E404 Not Found - PUT` **and** provenance signed fine | a static credential suppressed OIDC (§8) |
 | `ENEEDAUTH` / `Unable to authenticate` | trusted-publisher config mismatch |
 | `You cannot publish over the previously published versions` | **authentication worked**; the version exists. Bump it. |
