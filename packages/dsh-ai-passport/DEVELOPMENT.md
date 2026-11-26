@@ -191,10 +191,21 @@ Then bump, commit, tag:
 
 ```bash
 npm version patch --no-git-tag-version
+# ← also update the version the browser half reports, see below
 git add -A && git commit -m "release: v2.0.1"
 git tag v2.0.1
 git push origin main --tags
 ```
+
+**The browser half carries its own copy of the version.** `lib/client.js` has
+
+```js
+const VERSION = '2.0.1'
+```
+
+and a test asserts it equals `package.json` `version`. There is no build step
+and no generator, so a bump has to touch both — miss it and the suite fails with
+`客户端 VERSION 必须与 package.json 一致`, which at least names the problem.
 
 **The tag must equal `package.json` `version`**; the workflow refuses to publish
 on a mismatch. Note the tag lives in the monorepo root, and the publish workflow
@@ -274,5 +285,6 @@ the OIDC exchange. The symptom is a signed provenance statement followed by
 | `ENEEDAUTH` / `Unable to authenticate` | trusted-publisher config mismatch |
 | `You cannot publish over the previously published versions` | **authentication worked**; the version exists. Bump it. |
 | BLE panel shows noble not loaded | noble is not installed in this profile. §7. |
+| `客户端 VERSION 必须与 package.json 一致` | you bumped `package.json` but not `lib/client.js` `VERSION`. §6. |
 | `cancelledByParent` on many bridge tests | you are on Node 22. Use Node 24. §3. |
 | `ENOENT ... vendor/ai-passport/main/app_proto.h` | the checkout has no `vendor/`; the parity test needs it. §3. |
