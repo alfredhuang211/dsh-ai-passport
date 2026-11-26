@@ -82,10 +82,16 @@ export function classifyError(error) {
     })
   }
   if (text.includes('cannot find module') || text.includes('was compiled against a different node.js version')
-    || text.includes('err_dlopen_failed') || text.includes('invalid elf header')) {
-    return new TransportError(TRANSPORT_ERROR.NOT_AVAILABLE, 'BLE 驱动不可用', {
+    || text.includes('err_dlopen_failed') || text.includes('invalid elf header')
+    || text.includes('没有可用的 noble 实现')) {
+    // noble 是可选 peer 依赖：装插件时故意不拉它，否则它的安装脚本会让 pnpm
+    // 以非零码退出、整个插件装不上。所以"没装"是最常见的状态，提示必须直接
+    // 给出安装命令，而不是让人去猜或去翻文档。
+    return new TransportError(TRANSPORT_ERROR.NOT_AVAILABLE, '蓝牙驱动未安装', {
       cause: raw,
-      hint: '把 transport 切换为 bridge 或 mock，或在面板里查看诊断信息。',
+      hint: '蓝牙需要单独安装驱动：dsh plugin --profile <你的 profile> add @stoprocent/noble'
+        + '（若提示 ERR_PNPM_IGNORED_BUILDS，按提示批准构建后重跑一次）。'
+        + '不装也不影响插件的其他功能。',
     })
   }
   return new TransportError(TRANSPORT_ERROR.UNKNOWN, raw.message, { cause: raw })
